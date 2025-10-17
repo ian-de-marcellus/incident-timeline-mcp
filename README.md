@@ -21,16 +21,29 @@ Transforms unstructured incident logs into structured data:
 
 ## Demo
 
-Using Claude Desktop with the MCP server:
+**See it in action:** [Full conversation with Claude using the MCP tools →](https://claude.ai/share/ef47cf8c-48ef-4cee-a1cd-958b00aa2ce4)
 
-> **User:** Analyze this incident log: [paste incident text]
-> 
-> **Claude:** *[uses incident-timeline tools]*
-> 
-> **Severity:** HIGH (confidence: high)  
-> **Timeline:** 10 events from 14:23 to 14:40  
-> **Actions:** 2 investigation, 1 remediation, 2 communication, 1 status  
-> **Entities:** payment-service, auth-service, 10.0.15.42, api.stripe.com
+### Example: Analyzing a Real Incident
+
+Given an incident log with ISO 8601 timestamps and multiple responders:
+
+**Input:** Chat logs from database performance incident
+
+**Output - Timeline Extraction:**
+
+![Timeline events extracted with timestamps and actors](screenshots/timeline-events.png)
+
+**Output - Comprehensive Summary:**
+
+![Severity detection and structured summary](screenshots/severity-summary.png)
+
+The server extracts:
+- **29 timeline events** over 2+ hours
+- **8 categorized actions** (investigation, remediation, communication, status)
+- **Entities involved:** checkout-service, multiple domains, and infrastructure
+- **Severity assessment:** Critical with confidence scoring
+
+[View complete tool output →](https://claude.ai/share/ef47cf8c-48ef-4cee-a1cd-958b00aa2ce4)
 
 ## Installation
 ```bash
