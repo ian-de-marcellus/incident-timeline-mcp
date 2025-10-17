@@ -4,7 +4,7 @@ Tests for extraction logic in extractors.py
 
 import pytest
 from textwrap import dedent
-from extractors import extract_timeline, _find_timestamp, _find_actor
+from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions
 
 
 class TestExtractTimeline:
@@ -230,3 +230,193 @@ class TestFindActor:
         """Should return None when no actor found"""
         result = _find_actor("System automatically recovered")
         assert result is None
+
+class TestIdentifyActions:
+    """Tests for identify_actions function"""
+    
+    def test_finds_investigation_actions(self):
+        """Should identify investigation-type actions"""
+        text = dedent("""
+            @sarah investigating the database issue
+            @mike checked the logs
+            @alice analyzing error patterns
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 3
+        assert all(a['category'] == 'investigation' for a in actions)
+        assert actions[0]['action'] == 'investigating'
+        assert actions[1]['action'] == 'checked'
+        assert actions[2]['action'] == 'analyzing'
+    
+    def test_finds_remediation_actions(self):
+        """Should identify remediation-type actions"""
+        text = dedent("""
+            @sarah deployed the fix
+            @mike rolled back the change
+            @alice restarted the service
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 3
+        assert all(a['category'] == 'remediation' for a in actions)
+        assert actions[0]['action'] == 'deployed'
+        assert actions[1]['action'] == 'rolled back'
+
+    def test_finds_communication_actions(self):
+        """Should identify communication-type actions"""
+        text = dedent("""
+            @sarah notified the on-call team
+            @mike escalated to management
+            @alice confirmed the issue
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 3
+        assert all(a['category'] == 'communication' for a in actions)
+        assert actions[0]['action'] == 'notified'
+        assert actions[1]['action'] == 'escalated'
+        assert actions[2]['action'] == 'confirmed'
+
+    def test_finds_status_actions(self):
+        """Should identify status-change actions"""
+        text = dedent("""
+            @sarah resolved the incident
+            @mike mitigated the impact
+            @alice completed the rollback
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 3
+        assert all(a['category'] == 'status' for a in actions)
+        assert actions[0]['action'] == 'resolved'
+        assert actions[1]['action'] == 'mitigated'
+        assert actions[2]['action'] == 'completed'
+    
+    def test_case_insensitive_matching(self):
+        """Should match actions regardless of case"""
+        text = dedent("""
+            @sarah DEPLOYED the fix
+            @mike Rolled Back the change
+            @alice ReStArTeD the service
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 3
+        # Actions should be lowercase (as stored in keywords)
+        assert actions[0]['action'] == 'deployed'
+    
+    def test_preserves_full_context(self):
+        """Should preserve the full line as context"""
+        text = "@sarah deployed payment-service v2.1.3 to production"
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 1
+        assert actions[0]['context'] == text
+    
+    def test_one_action_per_line(self):
+        """Should only record first action per line"""
+        text = "@sarah investigated and then deployed the fix"
+        
+        actions = identify_actions(text)
+        
+        # Should only get first action found
+        assert len(actions) == 1
+        assert actions[0]['action'] in ['investigated', 'deployed']
+    
+    def test_empty_input(self):
+        """Should handle empty input"""
+        assert identify_actions("") == []
+        assert identify_actions("   \n\n   ") == []
+    
+    def test_no_actions_found(self):
+        """Should return empty list when no actions found"""
+        text = dedent("""
+            Just some regular text
+            With no action keywords
+        """).strip()
+        
+        assert identify_actions(text) == []
+
+    def test_finds_mixed_action_categories(self):
+        """Should handle different action types in same text"""
+        text = dedent("""
+            @sarah investigating the error
+            @mike deployed the fix
+            @alice notified stakeholders
+            @bob resolved the ticket
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 4
+        assert actions[0]['category'] == 'investigation'
+        assert actions[1]['category'] == 'remediation'
+        assert actions[2]['category'] == 'communication'
+        assert actions[3]['category'] == 'status'
+
+    def test_handles_multi_word_actions(self):
+        """Should match multi-word actions like 'rolled back'"""
+        text = "@sarah rolled back the deploy"
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 1
+        assert actions[0]['action'] == 'rolled back'
+        assert actions[0]['category'] == 'remediation'
+
+    def test_action_at_different_positions(self):
+        """Should find actions regardless of position in line"""
+        text = dedent("""
+            deployed new version @sarah
+            @mike investigating in production
+            the service was restarted by ops
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 3
+        assert 'deployed' in [a['action'] for a in actions]
+        assert 'investigating' in [a['action'] for a in actions]
+        assert 'restarted' in [a['action'] for a in actions]
+
+    def test_handles_verb_tense_variations(self):
+        """Should match both -ing and past tense forms"""
+        text = dedent("""
+            @sarah investigating the issue now
+            @mike investigated the logs earlier
+            @alice deploying the fix
+            @bob deployed to staging
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        assert len(actions) == 4
+        assert actions[0]['action'] == 'investigating'
+        assert actions[1]['action'] == 'investigated'
+        assert actions[2]['action'] == 'deploying'
+        assert actions[3]['action'] == 'deployed'
+
+    def test_ignores_action_keywords_in_nouns(self):
+        """Should handle action keywords used as nouns/in other contexts"""
+        # This might reveal edge cases where we match too broadly
+        text = dedent("""
+            The deployment was successful
+            Investigation report attached
+            @sarah deployed the fix
+        """).strip()
+        
+        actions = identify_actions(text)
+        
+        # Should find at least the one with @sarah
+        # Might also match 'deployment' and 'investigation' - that's okay
+        assert len(actions) >= 1
+        # The explicit action should be found
+        assert any(a['action'] == 'deployed' and '@sarah' in a['context'] 
+                for a in actions)

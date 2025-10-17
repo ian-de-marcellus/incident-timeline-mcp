@@ -226,10 +226,14 @@ class TestActionKeywords:
         assert 'status' in ACTION_KEYWORDS
     
     def test_contains_investigation_actions(self):
-        """Should include common investigation verbs"""
+        """Should include common investigation verbs in both tenses"""
         from patterns import ACTION_KEYWORDS
         investigation = ACTION_KEYWORDS['investigation']
+        # Present participle
         assert 'investigating' in investigation
+        assert 'checking' in investigation
+        assert 'analyzing' in investigation
+        # Past tense
         assert 'checked' in investigation
         assert 'analyzed' in investigation
     

@@ -136,3 +136,49 @@ def _is_likely_actor(actor: str) -> bool:
                      'info', 'debug', 'system']
     
     return actor.lower() not in common_labels
+
+def identify_actions(text: str) -> List[Dict[str, str]]:
+    """
+    Identify actions taken during incident response.
+    
+    Args:
+        text: Raw incident text
+    
+    Returns:
+        List of actions found, each with:
+        - action: the action keyword
+        - category: type of action (investigation, remediation, etc.)
+        - context: the line where action was found
+    
+    Example:
+        >>> text = "@sarah deployed fix to production"
+        >>> identify_actions(text)
+        [{'action': 'deployed', 'category': 'remediation', 
+          'context': '@sarah deployed fix to production'}]
+    """
+    actions = []
+    lines = text.strip().split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        line_lower = line.lower()
+        
+        # Check each category of actions
+        for category, keywords in ACTION_KEYWORDS.items():
+            for keyword in keywords:
+                if keyword in line_lower:
+                    actions.append({
+                        'action': keyword,
+                        'category': category,
+                        'context': line,
+                    })
+                    # Only record first action found per line
+                    break
+            if actions and actions[-1]['context'] == line:
+                # Already found an action in this line
+                break
+    
+    return actions

@@ -23,21 +23,48 @@ ACTOR_PATTERNS = {
 }
 
 # Action verb patterns - common incident response actions
+# Note: Includes common present participle (-ing) and past tense forms
+# Some less common verb forms may not be caught
 ACTION_KEYWORDS = {
     'investigation': [
-        'investigating', 'checked', 'examined', 'analyzed', 'reviewing',
-        'debugged', 'traced', 'monitoring', 'watching',
+        'investigating', 'investigated',
+        'checking', 'checked',
+        'examining', 'examined',
+        'analyzing', 'analyzed',
+        'reviewing', 'reviewed',
+        'debugging', 'debugged',
+        'tracing', 'traced',
+        'monitoring', 'monitored',
+        'watching',
     ],
     'remediation': [
-        'deployed', 'rolled back', 'reverted', 'restarted', 'rebooted',
-        'fixed', 'patched', 'updated', 'scaled', 'killed', 'stopped',
+        'deploying', 'deployed',
+        'rolling back', 'rolled back',
+        'reverting', 'reverted',
+        'restarting', 'restarted',
+        'rebooting', 'rebooted',
+        'fixing', 'fixed',
+        'patching', 'patched',
+        'updating', 'updated',
+        'scaling', 'scaled',
+        'killing', 'killed',
+        'stopping', 'stopped',
     ],
     'communication': [
-        'notified', 'alerted', 'paged', 'escalated', 'confirmed',
-        'acknowledged', 'reported',
+        'notifying', 'notified',
+        'alerting', 'alerted',
+        'paging', 'paged',
+        'escalating', 'escalated',
+        'confirming', 'confirmed',
+        'acknowledging', 'acknowledged',
+        'reporting', 'reported',
     ],
     'status': [
-        'resolved', 'mitigated', 'completed', 'started', 'initiated',
+        'resolving', 'resolved',
+        'mitigating', 'mitigated',
+        'completing', 'completed',
+        'starting', 'started',
+        'initiating', 'initiated',
     ],
 }
 
