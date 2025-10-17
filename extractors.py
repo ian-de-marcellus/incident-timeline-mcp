@@ -329,3 +329,80 @@ def detect_severity(text: str) -> Dict[str, any]:
         'confidence': confidence,
         'indicators': indicators,
     }
+
+def generate_summary(text: str) -> Dict[str, any]:
+    """
+    Generate comprehensive incident summary using all extractors.
+    
+    Args:
+        text: Raw incident text
+    
+    Returns:
+        Dict containing:
+        - timeline: list of events with timestamps
+        - actions: list of actions taken
+        - entities: dict of services/ips/domains involved
+        - severity: severity assessment
+        - summary_text: human-readable summary
+    
+    Example:
+        >>> text = "@sarah 14:23: payment-service down\\n@mike 14:25: deployed fix"
+        >>> generate_summary(text)
+        {'timeline': [...], 'actions': [...], 'entities': {...}, 
+         'severity': {...}, 'summary_text': '...'}
+    """
+    # Run all extractors
+    timeline = extract_timeline(text)
+    actions = identify_actions(text)
+    entities = extract_entities(text)
+    severity = detect_severity(text)
+    
+    # Generate human-readable summary text
+    summary_parts = []
+    
+    # Severity
+    if severity['level'] != 'unknown':
+        summary_parts.append(
+            f"Severity: {severity['level'].upper()} "
+            f"(confidence: {severity['confidence']})"
+        )
+    
+    # Timeline summary
+    if timeline:
+        summary_parts.append(f"Timeline: {len(timeline)} events recorded")
+        if timeline[0].get('time'):
+            summary_parts.append(f"  First event: {timeline[0]['time']}")
+        if timeline[-1].get('time'):
+            summary_parts.append(f"  Last event: {timeline[-1]['time']}")
+    
+    # Actions summary
+    if actions:
+        action_categories = {}
+        for action in actions:
+            category = action['category']
+            action_categories[category] = action_categories.get(category, 0) + 1
+        
+        summary_parts.append(f"Actions: {len(actions)} total")
+        for category, count in action_categories.items():
+            summary_parts.append(f"  {category}: {count}")
+    
+    # Entities summary
+    entity_counts = {
+        entity_type: len(entity_list) 
+        for entity_type, entity_list in entities.items()
+        if entity_list
+    }
+    if entity_counts:
+        summary_parts.append("Entities involved:")
+        for entity_type, count in entity_counts.items():
+            summary_parts.append(f"  {entity_type}: {count}")
+    
+    summary_text = "\n".join(summary_parts) if summary_parts else "No significant data extracted"
+    
+    return {
+        'timeline': timeline,
+        'actions': actions,
+        'entities': entities,
+        'severity': severity,
+        'summary_text': summary_text,
+    }

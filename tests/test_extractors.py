@@ -4,7 +4,7 @@ Tests for extraction logic in extractors.py
 
 import pytest
 from textwrap import dedent
-from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions, extract_entities, _is_valid_ip, _is_likely_domain, detect_severity
+from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions, extract_entities, _is_valid_ip, _is_likely_domain, detect_severity, generate_summary
 
 
 class TestExtractTimeline:
@@ -706,3 +706,160 @@ class TestDetectSeverity:
         
         assert result['level'] == 'unknown'
         assert result['indicators'] == []
+
+class TestGenerateSummary:
+    """Tests for generate_summary function"""
+    
+    def test_combines_all_extractors(self):
+        """Should run all extractors and include their results"""
+        text = dedent("""
+            @sarah 14:23: payment-service is down, critical outage
+            @mike 14:25: investigating the issue
+            @sarah 14:30: deployed fix to 10.0.0.1
+            @mike 14:35: service restored, monitoring api.example.com
+        """).strip()
+        
+        summary = generate_summary(text)
+        
+        # Should have all components
+        assert 'timeline' in summary
+        assert 'actions' in summary
+        assert 'entities' in summary
+        assert 'severity' in summary
+        assert 'summary_text' in summary
+        
+        # Check each component has data
+        assert len(summary['timeline']) == 4
+        assert len(summary['actions']) > 0
+        assert summary['severity']['level'] == 'critical'
+    
+    def test_generates_readable_summary_text(self):
+        """Should create human-readable summary"""
+        text = dedent("""
+            @sarah 14:23: payment-service down, critical issue
+            @mike 14:25: deployed fix
+        """).strip()
+        
+        summary = generate_summary(text)
+        
+        summary_text = summary['summary_text']
+        
+        # Should mention severity
+        assert 'CRITICAL' in summary_text.upper()
+        # Should mention timeline
+        assert '2 events' in summary_text.lower()
+        # Should mention actions
+        assert 'actions' in summary_text.lower()
+    
+    def test_includes_timeline_timerange(self):
+        """Should show first and last event times"""
+        text = dedent("""
+            @sarah 14:23: First event
+            @mike 14:30: Middle event
+            @alice 14:45: Last event
+        """).strip()
+        
+        summary = generate_summary(text)
+        
+        summary_text = summary['summary_text']
+        
+        # Should show time range
+        assert '14:23' in summary_text
+        assert '14:45' in summary_text
+    
+    def test_categorizes_actions_in_summary(self):
+        """Should break down actions by category"""
+        text = dedent("""
+            @sarah investigating the issue
+            @mike deployed the fix
+            @alice notified stakeholders
+            @bob resolved the ticket
+        """).strip()
+        
+        summary = generate_summary(text)
+        
+        summary_text = summary['summary_text']
+        
+        # Should mention action categories
+        assert 'investigation' in summary_text.lower()
+        assert 'remediation' in summary_text.lower()
+        assert 'communication' in summary_text.lower()
+        assert 'status' in summary_text.lower()
+    
+    def test_lists_entity_counts(self):
+        """Should summarize entities found"""
+        text = dedent("""
+            payment-service at 10.0.0.1 calling api.example.com
+            user-service at 10.0.0.2 calling auth.example.com
+        """).strip()
+        
+        summary = generate_summary(text)
+        
+        summary_text = summary['summary_text']
+        
+        # Should mention entity types and counts
+        assert 'services' in summary_text.lower()
+        assert 'ips' in summary_text.lower()
+        assert 'domains' in summary_text.lower()
+    
+    def test_handles_minimal_incident(self):
+        """Should handle incident with minimal information"""
+        text = "@sarah 14:23: Something happened"
+        
+        summary = generate_summary(text)
+        
+        # Should still have structure
+        assert summary['timeline']
+        assert summary['severity']['level'] == 'unknown'
+        assert summary['summary_text']
+    
+    def test_handles_empty_input(self):
+        """Should handle empty input gracefully"""
+        summary = generate_summary("")
+        
+        assert summary['timeline'] == []
+        assert summary['actions'] == []
+        assert summary['entities'] == {'services': [], 'ips': [], 'domains': []}
+        assert summary['severity']['level'] == 'unknown'
+        assert 'No significant data' in summary['summary_text']
+    
+    def test_no_data_produces_clear_message(self):
+        """Should clearly indicate when no data extracted"""
+        text = "Just some random text with no incident information"
+        
+        summary = generate_summary(text)
+        
+        assert 'No significant data' in summary['summary_text']
+    
+    def test_complete_incident_example(self):
+        """Integration test with realistic incident"""
+        text = dedent("""
+            @sarah 14:23: Seeing elevated error rates on payment-service
+            @mike 14:25: Confirmed. Error rate jumped from 0.1% to 15%
+            @sarah 14:27: Rolling back deploy from 14:15
+            @mike 14:30: Rollback complete. Error rate dropping
+            @sarah 14:35: Back to normal levels. Monitoring api.stripe.com
+            @mike 14:40: Incident resolved. Postmortem scheduled.
+        """).strip()
+        
+        summary = generate_summary(text)
+        
+        # Timeline
+        assert len(summary['timeline']) == 6
+        assert summary['timeline'][0]['actor'] == 'sarah'
+        
+        # Actions
+        assert len(summary['actions']) >= 3  # rolling back, monitoring, resolved
+        
+        # Entities
+        assert 'payment-service' in summary['entities']['services']
+        assert 'api.stripe.com' in summary['entities']['domains']
+        
+        # Severity (might be medium/high due to error rates)
+        assert summary['severity']['level'] in ['high', 'medium', 'unknown']
+        
+        # Summary text should be comprehensive
+        assert len(summary['summary_text']) > 50
+
+        print(summary)
+        assert(false)
