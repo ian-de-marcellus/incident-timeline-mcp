@@ -20,3 +20,13 @@ TIMESTAMP_PATTERNS = [
     # Negative lookahead prevents matching part of longer sequences
     r'(?<![:\w])([0-2]?\d):([0-5]\d):([0-5]\d)(?!:)\b',
 ]
+
+# Actor/person patterns - identifies who is taking action
+# Note: Names with lowercase particles (de, von, van) are not captured
+ACTOR_PATTERNS = [
+    # Slack-style @mentions: @sarah, @mike.jones
+    r'@([\w.-]+)',
+    
+    # Common name patterns in logs: "Sarah:", "Mike Jones:"
+    r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?):',
+]
