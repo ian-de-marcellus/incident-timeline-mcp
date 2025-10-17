@@ -8,7 +8,7 @@ from patterns import TIMESTAMP_PATTERNS
 
 
 class TestSimpleTimePattern:
-    """Tests for TIMESTAMP_PATTERNS[0] - HH:MM format"""
+    """Tests for TIMESTAMP_PATTERNS['simple_time'] - HH:MM format"""
     
     # Happy path
     @pytest.mark.parametrize("text,expected_match", [
@@ -19,7 +19,7 @@ class TestSimpleTimePattern:
     ])
     def test_matches_valid_times(self, text, expected_match):
         """Should match valid HH:MM times"""
-        pattern = TIMESTAMP_PATTERNS[0]
+        pattern = TIMESTAMP_PATTERNS['simple_time']
         match = re.search(pattern, text)
         assert match is not None
         assert match.group() == expected_match
@@ -32,7 +32,7 @@ class TestSimpleTimePattern:
     ])
     def test_no_match_port_numbers(self, text):
         """Port numbers should not match"""
-        pattern = TIMESTAMP_PATTERNS[0]
+        pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
     
     @pytest.mark.parametrize("text", [
@@ -41,7 +41,7 @@ class TestSimpleTimePattern:
     ])
     def test_no_match_clearly_not_times(self, text):
         """Non-time patterns should not match"""
-        pattern = TIMESTAMP_PATTERNS[0]
+        pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
     
     @pytest.mark.parametrize("text", [
@@ -50,7 +50,7 @@ class TestSimpleTimePattern:
     ])
     def test_no_match_error_codes(self, text):
         """Error codes should not match"""
-        pattern = TIMESTAMP_PATTERNS[0]
+        pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
     
     @pytest.mark.parametrize("text", [
@@ -59,7 +59,7 @@ class TestSimpleTimePattern:
     ])
     def test_no_match_ids_and_refs(self, text):
         """IDs and references should not match"""
-        pattern = TIMESTAMP_PATTERNS[0]
+        pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
     
     # Known limitations
@@ -71,12 +71,12 @@ class TestSimpleTimePattern:
     ])
     def test_ambiguous_patterns(self, text):
         """Some patterns are indistinguishable from times at regex level"""
-        pattern = TIMESTAMP_PATTERNS[0]
+        pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
 
 
 class TestFullDatetimePattern:
-    """Tests for TIMESTAMP_PATTERNS[1] - YYYY-MM-DD HH:MM:SS format"""
+    """Tests for TIMESTAMP_PATTERNS['full_datetime'] - YYYY-MM-DD HH:MM:SS format"""
     
     # Happy path
     @pytest.mark.parametrize("text", [
@@ -86,7 +86,7 @@ class TestFullDatetimePattern:
     ])
     def test_matches_valid_datetimes(self, text):
         """Should match full datetime strings"""
-        pattern = TIMESTAMP_PATTERNS[1]
+        pattern = TIMESTAMP_PATTERNS['full_datetime']
         match = re.search(pattern, text)
         assert match is not None
         assert "202" in match.group()  # Year prefix
@@ -100,12 +100,12 @@ class TestFullDatetimePattern:
     ])
     def test_no_match_incomplete_or_wrong_format(self, text):
         """Should require both date and time in correct format"""
-        pattern = TIMESTAMP_PATTERNS[1]
+        pattern = TIMESTAMP_PATTERNS['full_datetime']
         assert re.search(pattern, text) is None
 
 
 class TestTimeWithSecondsPattern:
-    """Tests for TIMESTAMP_PATTERNS[2] - HH:MM:SS format"""
+    """Tests for TIMESTAMP_PATTERNS['time_with_seconds'] - HH:MM:SS format"""
     
     # Happy path
     @pytest.mark.parametrize("text,expected_match", [
@@ -115,7 +115,7 @@ class TestTimeWithSecondsPattern:
     ])
     def test_matches_valid_times_with_seconds(self, text, expected_match):
         """Should match HH:MM:SS format"""
-        pattern = TIMESTAMP_PATTERNS[2]
+        pattern = TIMESTAMP_PATTERNS['time_with_seconds']
         match = re.search(pattern, text)
         assert match is not None
         assert match.group() == expected_match
@@ -128,7 +128,7 @@ class TestTimeWithSecondsPattern:
     ])
     def test_no_match_wrong_format(self, text):
         """Should not match incorrect formats"""
-        pattern = TIMESTAMP_PATTERNS[2]
+        pattern = TIMESTAMP_PATTERNS['time_with_seconds']
         assert re.search(pattern, text) is None
 
 class TestActorPatterns:
@@ -144,7 +144,7 @@ class TestActorPatterns:
     def test_matches_mentions(self, text, expected_actor):
         """Should match @mention patterns"""
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS[0]
+        pattern = ACTOR_PATTERNS['mention']
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_actor
@@ -158,7 +158,7 @@ class TestActorPatterns:
     def test_mentions_no_false_positives(self, text):
         """Should handle @ in other contexts"""
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS[0]
+        pattern = ACTOR_PATTERNS['mention']
         # Email might partially match, but won't match full email
         # This is acceptable behavior
     
@@ -172,7 +172,7 @@ class TestActorPatterns:
     def test_matches_name_colon(self, text, expected_name):
         """Should match 'Name:' patterns in chat logs"""
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS[1]
+        pattern = ACTOR_PATTERNS['name_colon']
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_name
@@ -184,7 +184,7 @@ class TestActorPatterns:
     def test_name_colon_requires_proper_case(self, text):
         """Names should be properly capitalized"""
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS[1]
+        pattern = ACTOR_PATTERNS['name_colon']
         assert re.search(pattern, text) is None
 
     @pytest.mark.xfail(reason="Names with lowercase particles not supported (de, von, van, etc.)")
@@ -196,7 +196,7 @@ class TestActorPatterns:
     def test_names_with_particles(self, text, expected_name):
         """Names with lowercase particles are not captured"""
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS[1]
+        pattern = ACTOR_PATTERNS['name_colon']
         match = re.search(pattern, text)
         if match:
             assert match.group(1) == expected_name
@@ -211,31 +211,42 @@ class TestActorPatterns:
     def test_name_colon_ambiguous_labels(self, text):
         """Common labels are indistinguishable from names at regex level"""
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS[1]
+        pattern = ACTOR_PATTERNS['name_colon']
         assert re.search(pattern, text) is None
 
 class TestActionKeywords:
-    """Tests for ACTION_KEYWORDS list"""
+    """Tests for ACTION_KEYWORDS dict"""
+    
+    def test_has_all_categories(self):
+        """Should have all action categories"""
+        from patterns import ACTION_KEYWORDS
+        assert 'investigation' in ACTION_KEYWORDS
+        assert 'remediation' in ACTION_KEYWORDS
+        assert 'communication' in ACTION_KEYWORDS
+        assert 'status' in ACTION_KEYWORDS
     
     def test_contains_investigation_actions(self):
         """Should include common investigation verbs"""
         from patterns import ACTION_KEYWORDS
-        assert 'investigating' in ACTION_KEYWORDS
-        assert 'checked' in ACTION_KEYWORDS
-        assert 'analyzed' in ACTION_KEYWORDS
+        investigation = ACTION_KEYWORDS['investigation']
+        assert 'investigating' in investigation
+        assert 'checked' in investigation
+        assert 'analyzed' in investigation
     
     def test_contains_remediation_actions(self):
         """Should include common remediation verbs"""
         from patterns import ACTION_KEYWORDS
-        assert 'deployed' in ACTION_KEYWORDS
-        assert 'rolled back' in ACTION_KEYWORDS
-        assert 'restarted' in ACTION_KEYWORDS
+        remediation = ACTION_KEYWORDS['remediation']
+        assert 'deployed' in remediation
+        assert 'rolled back' in remediation
+        assert 'restarted' in remediation
     
     def test_all_lowercase(self):
         """All keywords should be lowercase for case-insensitive matching"""
         from patterns import ACTION_KEYWORDS
-        for keyword in ACTION_KEYWORDS:
-            assert keyword == keyword.lower(), f"'{keyword}' is not lowercase"
+        for category, keywords in ACTION_KEYWORDS.items():
+            for keyword in keywords:
+                assert keyword == keyword.lower(), f"'{keyword}' in {category} is not lowercase"
 
 
 class TestSeverityKeywords:
@@ -278,7 +289,7 @@ class TestEntityPatterns:
     def test_matches_service_names(self, text, expected_service):
         """Should match common service name patterns"""
         from patterns import ENTITY_PATTERNS
-        pattern = ENTITY_PATTERNS[0]
+        pattern = ENTITY_PATTERNS['service']
         match = re.search(pattern, text.lower())  # Case-insensitive
         assert match is not None
         assert match.group(1) == expected_service
@@ -291,7 +302,7 @@ class TestEntityPatterns:
     def test_matches_ip_addresses(self, text, expected_ip):
         """Should match IPv4 addresses"""
         from patterns import ENTITY_PATTERNS
-        pattern = ENTITY_PATTERNS[1]
+        pattern = ENTITY_PATTERNS['ip']
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_ip
@@ -304,7 +315,7 @@ class TestEntityPatterns:
     def test_matches_domains(self, text, expected_domain):
         """Should match domain names"""
         from patterns import ENTITY_PATTERNS
-        pattern = ENTITY_PATTERNS[2]
+        pattern = ENTITY_PATTERNS['domain']
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_domain
@@ -317,7 +328,7 @@ class TestEntityPatterns:
     def test_invalid_ips_need_filtering(self, text):
         """Invalid IPs match regex but will be filtered in extractor"""
         from patterns import ENTITY_PATTERNS
-        pattern = ENTITY_PATTERNS[1]
+        pattern = ENTITY_PATTERNS['ip']
         assert re.search(pattern, text) is None
 
 if __name__ == "__main__":
