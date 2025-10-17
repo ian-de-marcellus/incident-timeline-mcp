@@ -1,0 +1,29 @@
+2024-10-15T14:23:15Z sarah.chen: @channel 🚨 Seeing elevated response times on checkout-db-primary. P95 latency jumped from 150ms to 3.5s. Starting incident investigation.
+2024-10-15T14:23:47Z james.rodriguez: Taking IC role. Sarah, continue investigation. @alex.kim can you check if we're seeing customer impact?
+2024-10-15T14:24:12Z alex.kim: Checking support queue now. We have 12 new tickets in the last 5 minutes about slow checkout. Usually see 2-3 per hour.
+2024-10-15T14:25:03Z sarah.chen: Database CPU is at 94%. Looking at slow query log now...
+2024-10-15T14:25:45Z james.rodriguez: **Status Update**: Declared SEV-2 incident. Database performance degraded, customer checkout affected. War room: https://meet.company.com/incident-847
+2024-10-15T14:26:18Z maria.santos: In war room. What do we need?
+2024-10-15T14:27:01Z sarah.chen: Found it! There's a query hitting the orders table without using the index. Scanning 2M+ rows on every execution.
+2024-10-15T14:27:22Z sarah.chen: ```sql SELECT * FROM orders WHERE merchant_id = ? AND status IN ('pending', 'processing') AND created_at > NOW() - INTERVAL 30 DAY``` This query is running 300+ times per second.
+2024-10-15T14:28:10Z david.park: Oh no... that's from the merchant dashboard feature we deployed 2 hours ago. The index should be on (merchant_id, status, created_at) but I only created (merchant_id, created_at).
+2024-10-15T14:28:45Z james.rodriguez: David, no blame game right now. What are our options for immediate mitigation?
+2024-10-15T14:29:20Z sarah.chen: Options: 1. Kill the queries manually (temporary, they'll keep coming) 2. Rate limit the merchant dashboard endpoint 3. Rollback the deployment 4. Add the missing index (takes ~5 mins to build)
+2024-10-15T14:29:58Z maria.santos: I vote rollback while we add the index properly in a fix. Fastest path to recovery.
+2024-10-15T14:30:15Z james.rodriguez: Agreed. @david.park start rollback. @sarah.chen can you add rate limiting as backup in case rollback doesn't fully resolve?
+2024-10-15T14:30:42Z david.park: Rollback initiated. ETA 3 minutes.
+2024-10-15T14:31:05Z sarah.chen: Setting rate limit on /api/merchant/dashboard to 10 req/min per merchant_id
+2024-10-15T14:33:12Z alex.kim: Ticket volume slowing down. Down to 3 new tickets in last 5 minutes.
+2024-10-15T14:33:48Z david.park: Rollback complete. Version v2.14.3 deployed.
+2024-10-15T14:34:20Z sarah.chen: 🎉 Query count dropped immediately. CPU back to 23%. P95 latency at 180ms.
+2024-10-15T14:35:01Z james.rodriguez: **Status Update**: Rollback complete. Metrics returning to normal. Will monitor for 30 minutes before declaring all-clear.
+2024-10-15T14:36:15Z maria.santos: David, let's create a fix branch with the proper index. We'll need to: 1. Add composite index (merchant_id, status, created_at) 2. Add query explain to our CI tests 3. Load test before redeploy
+2024-10-15T14:37:42Z david.park: On it. Also going to add some monitoring alerts for slow queries > 1s so we catch this earlier next time.
+2024-10-15T14:42:00Z alex.kim: Ticket velocity back to normal. No new checkout issues in last 7 minutes.
+2024-10-15T14:55:30Z sarah.chen: 30 min mark. All metrics stable: - DB CPU: 18-22% - P95 latency: 165ms - Error rate: 0.02% (baseline) - Query execution: normal patterns
+2024-10-15T14:56:15Z james.rodriguez: ✅ **INCIDENT RESOLVED** - All metrics stable. Thanks everyone for quick response! **Timeline**: - Detected: 14:23 UTC - Rollback started: 14:30 UTC - Resolved: 14:34 UTC - Total duration: 11 minutes **Action Items**: 1. @david.park - Fix with proper index + load testing 2. @sarah.chen - Add slow query monitoring 3. @maria.santos - Post-incident review scheduled for tomorrow 10am I'll write up the incident report.
+2024-10-15T14:57:03Z maria.santos: Great work team. Clean response. Let's make sure we capture lessons learned in the PIR tomorrow.
+2024-10-15T15:12:45Z david.park: PR ready for review: https://github.com/company/checkout-service/pull/1842 Added proper index + query explain test. Running load tests now.
+2024-10-15T15:45:22Z david.park: Load test passed! Query execution dropped from 3.2s to 12ms with the composite index. Ready for review and re-deploy.
+2024-10-15T16:18:30Z maria.santos: PR approved. Let's deploy this tomorrow morning during business hours with full monitoring.
+2024-10-15T16:45:12Z james.rodriguez: Incident report published: https://company.atlassian.net/wiki/incident-reports/INC-2024-0847 Post-incident review tomorrow 10am PST. Calendar invite sent.
