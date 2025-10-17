@@ -42,14 +42,6 @@ The server extracts:
 ![Severity detection and structured summary](screenshots/severity-summary.png)
 *Severity assessment and human-readable summary*
 
-The server extracts:
-- **29 timeline events** over 2+ hours
-- **8 categorized actions** (investigation, remediation, communication, status)
-- **Entities involved:** checkout-service, multiple domains, and infrastructure
-- **Severity assessment:** Critical with confidence scoring
-
-[View complete tool output →](https://claude.ai/share/ef47cf8c-48ef-4cee-a1cd-958b00aa2ce4)
-
 ## Installation
 ```bash
 # Clone the repository
