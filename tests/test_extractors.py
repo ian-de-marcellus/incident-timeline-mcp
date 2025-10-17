@@ -601,7 +601,7 @@ class TestDetectSeverity:
         result = detect_severity(text)
         
         assert result['level'] == 'critical'
-        assert 'down' in result['indicators']
+        assert 'is down' in result['indicators']
         assert 'outage' in result['indicators']
         assert 'critical' in result['indicators']
     
@@ -664,7 +664,7 @@ class TestDetectSeverity:
         
         # Critical should win
         assert result['level'] == 'critical'
-        assert 'down' in result['indicators']
+        assert 'is down' in result['indicators']
     
     def test_confidence_high_with_multiple_indicators(self):
         """Should have high confidence with 3+ indicators"""

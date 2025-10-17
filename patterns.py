@@ -72,8 +72,8 @@ ACTION_KEYWORDS = {
 
 # Severity indicator keywords
 SEVERITY_KEYWORDS = {
-    'critical': ['critical', 'down', 'outage', 'offline', 'unavailable', 
-                 'total failure', 'complete loss', 'service down'],
+    'critical': ['critical', 'is down', 'went down', 'outage', 'offline', 'unavailable', 
+             'total failure', 'complete loss', 'service down', 'system down'],
     'high': ['degraded', 'slow', 'timeout', 'elevated error', 
              'high error', 'error rate', 'performance issue',
              'jumped', 'spike', 'surged'],

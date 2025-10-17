@@ -334,11 +334,16 @@ def detect_severity(text: str) -> Dict[str, any]:
         confidence = 'medium'
     else:
         confidence = 'low'
-    
+
+    # After determining the level, collect ALL indicators
+    all_indicators = []
+    for level_indicators in severity_scores.values():
+        all_indicators.extend(level_indicators)
+
     return {
         'level': level,
         'confidence': confidence,
-        'indicators': indicators,
+        'indicators': all_indicators,  # Show everything found
     }
 
 def generate_summary(text: str) -> Dict[str, any]:
