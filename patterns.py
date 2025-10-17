@@ -10,6 +10,7 @@ import re
 # filtered by context analysis in extractors.py
 # Ordered from most specific to least specific (dict maintains insertion order in Python 3.7+)
 TIMESTAMP_PATTERNS = {
+    'iso8601': r'\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\b',
     'full_datetime': r'\b(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)\b',
     'time_with_seconds': r'(?<![:\w])([0-2]?\d):([0-5]\d):([0-5]\d)(?!:\d)\b',
     'simple_time': r'(?<![:\w])([0-2]?\d):([0-5]\d)(?!:\d)\b',
@@ -19,6 +20,7 @@ TIMESTAMP_PATTERNS = {
 # Note: Names with lowercase particles (de, von, van) are not captured
 ACTOR_PATTERNS = {
     'mention': r'@([\w.-]+)',  # Slack-style @mentions: @sarah, @mike.jones
+    'name_with_dot': r'\b([a-z]+\.[a-z]+):',  # firstname.lastname: format (lowercase)
     'name_colon': r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?):',  # "Sarah:", "Mike Jones:"
 }
 

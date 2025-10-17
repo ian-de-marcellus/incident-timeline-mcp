@@ -131,6 +131,21 @@ class TestTimeWithSecondsPattern:
         pattern = TIMESTAMP_PATTERNS['time_with_seconds']
         assert re.search(pattern, text) is None
 
+class TestISO8601Pattern:
+    """Tests for TIMESTAMP_PATTERNS['iso8601'] - ISO 8601 format"""
+    
+    @pytest.mark.parametrize("text,expected_time", [
+        ("2024-10-15T14:23:15Z sarah.chen: message", "2024-10-15T14:23:15Z"),
+        ("logged at 2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+        ("event 2024-12-31T23:59:59Z occurred", "2024-12-31T23:59:59Z"),
+    ])
+    def test_matches_iso8601_format(self, text, expected_time):
+        """Should match ISO 8601 timestamps"""
+        pattern = TIMESTAMP_PATTERNS['iso8601']
+        match = re.search(pattern, text)
+        assert match is not None
+        assert match.group() == expected_time
+
 class TestActorPatterns:
     """Tests for ACTOR_PATTERNS - @mentions and names"""
     
@@ -186,6 +201,32 @@ class TestActorPatterns:
         from patterns import ACTOR_PATTERNS
         pattern = ACTOR_PATTERNS['name_colon']
         assert re.search(pattern, text) is None
+
+    @pytest.mark.parametrize("text,expected_actor", [
+        ("sarah.chen: investigating issue", "sarah.chen"),
+        ("james.rodriguez: taking IC role", "james.rodriguez"),
+        ("alex.kim: checking queue", "alex.kim"),
+    ])
+    def test_matches_dotted_names(self, text, expected_actor):
+        """Should match firstname.lastname format"""
+        from patterns import ACTOR_PATTERNS
+        pattern = ACTOR_PATTERNS['name_with_dot']
+        match = re.search(pattern, text)
+        assert match is not None
+        assert match.group(1) == expected_actor
+    
+    def test_dotted_names_not_domains(self):
+        """firstname.lastname: should be actor, not domain"""
+        from patterns import ACTOR_PATTERNS
+        
+        # This should match as an actor
+        text = "sarah.chen: investigating"
+        actor_pattern = ACTOR_PATTERNS['name_with_dot']
+        assert re.search(actor_pattern, text) is not None
+        
+        # But actual domains shouldn't match this pattern
+        assert re.search(actor_pattern, "api.example.com returned") is None
+        assert re.search(actor_pattern, "timeout from service.uber.com") is None
 
     @pytest.mark.xfail(reason="Names with lowercase particles not supported (de, von, van, etc.)")
     @pytest.mark.parametrize("text,expected_name", [

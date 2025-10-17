@@ -131,11 +131,22 @@ def _is_likely_actor(actor: str) -> bool:
     
     Filters out common labels like:
     - Time, Error, Status, Note
+    - Domain names (ending in .com, .org, etc.)
     """
     common_labels = ['time', 'error', 'status', 'note', 'warning', 
                      'info', 'debug', 'system']
     
-    return actor.lower() not in common_labels
+    # Filter common labels
+    if actor.lower() in common_labels:
+        return False
+    
+    # Filter domain names - check if it ends with common TLD
+    common_tlds = ['.com', '.org', '.net', '.io', '.co', '.edu', '.gov']
+    actor_lower = actor.lower()
+    if any(actor_lower.endswith(tld) for tld in common_tlds):
+        return False
+    
+    return True
 
 def identify_actions(text: str) -> List[Dict[str, str]]:
     """

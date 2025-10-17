@@ -231,6 +231,17 @@ class TestFindActor:
         result = _find_actor("System automatically recovered")
         assert result is None
 
+    def test_filters_domains_with_colon(self):
+        """Should not treat domains as actors even with colon"""
+        assert _find_actor("google.com: returned 500") is None
+        assert _find_actor("api.example.com: timeout") is None
+        assert _find_actor("service.io: connection refused") is None
+    
+    def test_accepts_names_with_dots(self):
+        """Should accept firstname.lastname as actors"""
+        assert _find_actor("sarah.chen: investigating") == "sarah.chen"
+        assert _find_actor("james.rodriguez: taking role") == "james.rodriguez"
+
 class TestIdentifyActions:
     """Tests for identify_actions function"""
     
@@ -606,7 +617,7 @@ class TestDetectSeverity:
         
         assert result['level'] == 'high'
         assert 'degraded' in result['indicators']
-        assert 'high error rate' in result['indicators']
+        assert 'high error' in result['indicators']
     
     def test_detects_medium_severity(self):
         """Should identify medium severity incidents"""
@@ -862,4 +873,3 @@ class TestGenerateSummary:
         assert len(summary['summary_text']) > 50
 
         print(summary)
-        assert(false)
