@@ -25,17 +25,22 @@ Transforms unstructured incident logs into structured data:
 
 ### Example: Analyzing a Real Incident
 
-Given an incident log with ISO 8601 timestamps and multiple responders:
+**Input:** [`examples/incident_response_simple.txt`](examples/incident_response_example.txt) - Database performance incident with ISO 8601 timestamps
 
-**Input:** Chat logs from database performance incident
+**Output:** [`examples/incident_response_output.json`](examples/incident_response_output.json) - Complete structured extraction
 
-**Output - Timeline Extraction:**
+The server extracts:
+- **29 timeline events** over 2+ hours (14:23 → 16:45)
+- **8 categorized actions** (investigation, remediation, communication, status)
+- **Entities involved:** checkout-service, GitHub.com, company.atlassian.net
+- **Severity assessment:** Critical level with indicator analysis
 
+**Key screenshots:**
 ![Timeline events extracted with timestamps and actors](screenshots/timeline-events.png)
-
-**Output - Comprehensive Summary:**
+*Timeline extraction with timestamps and actor detection*
 
 ![Severity detection and structured summary](screenshots/severity-summary.png)
+*Severity assessment and human-readable summary*
 
 The server extracts:
 - **29 timeline events** over 2+ hours

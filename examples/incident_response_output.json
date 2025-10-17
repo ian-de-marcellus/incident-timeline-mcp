@@ -1,0 +1,215 @@
+{
+  "timeline": [
+    {
+      "time": "2024-10-15T14:23:15Z",
+      "text": "2024-10-15T14:23:15Z sarah.chen: @channel \u00f0\u0178\u0161\u00a8 Seeing elevated response times on checkout-db-primary. P95 latency jumped from 150ms to 3.5s. Starting incident investigation.",
+      "actor": "channel"
+    },
+    {
+      "time": "2024-10-15T14:23:47Z",
+      "text": "2024-10-15T14:23:47Z james.rodriguez: Taking IC role. Sarah, continue investigation. @alex.kim can you check if we're seeing customer impact?",
+      "actor": "alex.kim"
+    },
+    {
+      "time": "2024-10-15T14:24:12Z",
+      "text": "2024-10-15T14:24:12Z alex.kim: Checking support queue now. We have 12 new tickets in the last 5 minutes about slow checkout. Usually see 2-3 per hour.",
+      "actor": "alex.kim"
+    },
+    {
+      "time": "2024-10-15T14:25:03Z",
+      "text": "2024-10-15T14:25:03Z sarah.chen: Database CPU is at 94%. Looking at slow query log now...",
+      "actor": "sarah.chen"
+    },
+    {
+      "time": "2024-10-15T14:25:45Z",
+      "text": "2024-10-15T14:25:45Z james.rodriguez: **Status Update**: Declared SEV-2 incident. Database performance degraded, customer checkout affected. War room: https://meet.company.com/incident-847",
+      "actor": "james.rodriguez"
+    },
+    {
+      "time": "2024-10-15T14:26:18Z",
+      "text": "2024-10-15T14:26:18Z maria.santos: In war room. What do we need?",
+      "actor": "maria.santos"
+    },
+    {
+      "time": "2024-10-15T14:27:01Z",
+      "text": "2024-10-15T14:27:01Z sarah.chen: Found it! There's a query hitting the orders table without using the index. Scanning 2M+ rows on every execution.",
+      "actor": "sarah.chen"
+    },
+    {
+      "time": "2024-10-15T14:27:22Z",
+      "text": "2024-10-15T14:27:22Z sarah.chen: ```sql SELECT * FROM orders WHERE merchant_id = ? AND status IN ('pending', 'processing') AND created_at > NOW() - INTERVAL 30 DAY``` This query is running 300+ times per second.",
+      "actor": "sarah.chen"
+    },
+    {
+      "time": "2024-10-15T14:28:10Z",
+      "text": "2024-10-15T14:28:10Z david.park: Oh no... that's from the merchant dashboard feature we deployed 2 hours ago. The index should be on (merchant_id, status, created_at) but I only created (merchant_id, created_at).",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T14:28:45Z",
+      "text": "2024-10-15T14:28:45Z james.rodriguez: David, no blame game right now. What are our options for immediate mitigation?",
+      "actor": "james.rodriguez"
+    },
+    {
+      "time": "2024-10-15T14:29:20Z",
+      "text": "2024-10-15T14:29:20Z sarah.chen: Options: 1. Kill the queries manually (temporary, they'll keep coming) 2. Rate limit the merchant dashboard endpoint 3. Rollback the deployment 4. Add the missing index (takes ~5 mins to build)",
+      "actor": "sarah.chen"
+    },
+    {
+      "time": "2024-10-15T14:29:58Z",
+      "text": "2024-10-15T14:29:58Z maria.santos: I vote rollback while we add the index properly in a fix. Fastest path to recovery.",
+      "actor": "maria.santos"
+    },
+    {
+      "time": "2024-10-15T14:30:15Z",
+      "text": "2024-10-15T14:30:15Z james.rodriguez: Agreed. @david.park start rollback. @sarah.chen can you add rate limiting as backup in case rollback doesn't fully resolve?",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T14:30:42Z",
+      "text": "2024-10-15T14:30:42Z david.park: Rollback initiated. ETA 3 minutes.",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T14:31:05Z",
+      "text": "2024-10-15T14:31:05Z sarah.chen: Setting rate limit on /api/merchant/dashboard to 10 req/min per merchant_id",
+      "actor": "sarah.chen"
+    },
+    {
+      "time": "2024-10-15T14:33:12Z",
+      "text": "2024-10-15T14:33:12Z alex.kim: Ticket volume slowing down. Down to 3 new tickets in last 5 minutes.",
+      "actor": "alex.kim"
+    },
+    {
+      "time": "2024-10-15T14:33:48Z",
+      "text": "2024-10-15T14:33:48Z david.park: Rollback complete. Version v2.14.3 deployed.",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T14:34:20Z",
+      "text": "2024-10-15T14:34:20Z sarah.chen: \u00f0\u0178\u017d\u2030 Query count dropped immediately. CPU back to 23%. P95 latency at 180ms.",
+      "actor": "sarah.chen"
+    },
+    {
+      "time": "2024-10-15T14:35:01Z",
+      "text": "2024-10-15T14:35:01Z james.rodriguez: **Status Update**: Rollback complete. Metrics returning to normal. Will monitor for 30 minutes before declaring all-clear.",
+      "actor": "james.rodriguez"
+    },
+    {
+      "time": "2024-10-15T14:36:15Z",
+      "text": "2024-10-15T14:36:15Z maria.santos: David, let's create a fix branch with the proper index. We'll need to: 1. Add composite index (merchant_id, status, created_at) 2. Add query explain to our CI tests 3. Load test before redeploy",
+      "actor": "maria.santos"
+    },
+    {
+      "time": "2024-10-15T14:37:42Z",
+      "text": "2024-10-15T14:37:42Z david.park: On it. Also going to add some monitoring alerts for slow queries > 1s so we catch this earlier next time.",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T14:42:00Z",
+      "text": "2024-10-15T14:42:00Z alex.kim: Ticket velocity back to normal. No new checkout issues in last 7 minutes.",
+      "actor": "alex.kim"
+    },
+    {
+      "time": "2024-10-15T14:55:30Z",
+      "text": "2024-10-15T14:55:30Z sarah.chen: 30 min mark. All metrics stable: - DB CPU: 18-22% - P95 latency: 165ms - Error rate: 0.02% (baseline) - Query execution: normal patterns",
+      "actor": "sarah.chen"
+    },
+    {
+      "time": "2024-10-15T14:56:15Z",
+      "text": "2024-10-15T14:56:15Z james.rodriguez: \u00e2\u0153\u2026 **INCIDENT RESOLVED** - All metrics stable. Thanks everyone for quick response! **Timeline**: - Detected: 14:23 UTC - Rollback started: 14:30 UTC - Resolved: 14:34 UTC - Total duration: 11 minutes **Action Items**: 1. @david.park - Fix with proper index + load testing 2. @sarah.chen - Add slow query monitoring 3. @maria.santos - Post-incident review scheduled for tomorrow 10am I'll write up the incident report.",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T14:57:03Z",
+      "text": "2024-10-15T14:57:03Z maria.santos: Great work team. Clean response. Let's make sure we capture lessons learned in the PIR tomorrow.",
+      "actor": "maria.santos"
+    },
+    {
+      "time": "2024-10-15T15:12:45Z",
+      "text": "2024-10-15T15:12:45Z david.park: PR ready for review: https://github.com/company/checkout-service/pull/1842 Added proper index + query explain test. Running load tests now.",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T15:45:22Z",
+      "text": "2024-10-15T15:45:22Z david.park: Load test passed! Query execution dropped from 3.2s to 12ms with the composite index. Ready for review and re-deploy.",
+      "actor": "david.park"
+    },
+    {
+      "time": "2024-10-15T16:18:30Z",
+      "text": "2024-10-15T16:18:30Z maria.santos: PR approved. Let's deploy this tomorrow morning during business hours with full monitoring.",
+      "actor": "maria.santos"
+    },
+    {
+      "time": "2024-10-15T16:45:12Z",
+      "text": "2024-10-15T16:45:12Z james.rodriguez: Incident report published: https://company.atlassian.net/wiki/incident-reports/INC-2024-0847 Post-incident review tomorrow 10am PST. Calendar invite sent.",
+      "actor": "james.rodriguez"
+    }
+  ],
+  "actions": [
+    {
+      "action": "starting",
+      "category": "status",
+      "context": "2024-10-15T14:23:15Z sarah.chen: @channel \u00f0\u0178\u0161\u00a8 Seeing elevated response times on checkout-db-primary. P95 latency jumped from 150ms to 3.5s. Starting incident investigation."
+    },
+    {
+      "action": "checking",
+      "category": "investigation",
+      "context": "2024-10-15T14:24:12Z alex.kim: Checking support queue now. We have 12 new tickets in the last 5 minutes about slow checkout. Usually see 2-3 per hour."
+    },
+    {
+      "action": "deployed",
+      "category": "remediation",
+      "context": "2024-10-15T14:28:10Z david.park: Oh no... that's from the merchant dashboard feature we deployed 2 hours ago. The index should be on (merchant_id, status, created_at) but I only created (merchant_id, created_at)."
+    },
+    {
+      "action": "initiated",
+      "category": "status",
+      "context": "2024-10-15T14:30:42Z david.park: Rollback initiated. ETA 3 minutes."
+    },
+    {
+      "action": "deployed",
+      "category": "remediation",
+      "context": "2024-10-15T14:33:48Z david.park: Rollback complete. Version v2.14.3 deployed."
+    },
+    {
+      "action": "monitoring",
+      "category": "investigation",
+      "context": "2024-10-15T14:37:42Z david.park: On it. Also going to add some monitoring alerts for slow queries > 1s so we catch this earlier next time."
+    },
+    {
+      "action": "monitoring",
+      "category": "investigation",
+      "context": "2024-10-15T14:56:15Z james.rodriguez: \u00e2\u0153\u2026 **INCIDENT RESOLVED** - All metrics stable. Thanks everyone for quick response! **Timeline**: - Detected: 14:23 UTC - Rollback started: 14:30 UTC - Resolved: 14:34 UTC - Total duration: 11 minutes **Action Items**: 1. @david.park - Fix with proper index + load testing 2. @sarah.chen - Add slow query monitoring 3. @maria.santos - Post-incident review scheduled for tomorrow 10am I'll write up the incident report."
+    },
+    {
+      "action": "monitoring",
+      "category": "investigation",
+      "context": "2024-10-15T16:18:30Z maria.santos: PR approved. Let's deploy this tomorrow morning during business hours with full monitoring."
+    }
+  ],
+  "entities": {
+    "services": [
+      "checkout-service"
+    ],
+    "ips": [],
+    "domains": [
+      "sarah.chen",
+      "james.rodriguez",
+      "alex.kim",
+      "meet.company.com",
+      "maria.santos",
+      "david.park",
+      "github.com",
+      "company.atlassian.net"
+    ]
+  },
+  "severity": {
+    "level": "critical",
+    "confidence": "medium",
+    "indicators": [
+      "down"
+    ]
+  },
+  "summary_text": "Severity: CRITICAL (confidence: medium)\nTimeline: 29 events recorded\n  First event: 2024-10-15T14:23:15Z\n  Last event: 2024-10-15T16:45:12Z\nActions: 8 total\n  status: 2\n  investigation: 4\n  remediation: 2\nEntities involved:\n  services: 1\n  domains: 8"
+}
