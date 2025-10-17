@@ -214,5 +214,111 @@ class TestActorPatterns:
         pattern = ACTOR_PATTERNS[1]
         assert re.search(pattern, text) is None
 
+class TestActionKeywords:
+    """Tests for ACTION_KEYWORDS list"""
+    
+    def test_contains_investigation_actions(self):
+        """Should include common investigation verbs"""
+        from patterns import ACTION_KEYWORDS
+        assert 'investigating' in ACTION_KEYWORDS
+        assert 'checked' in ACTION_KEYWORDS
+        assert 'analyzed' in ACTION_KEYWORDS
+    
+    def test_contains_remediation_actions(self):
+        """Should include common remediation verbs"""
+        from patterns import ACTION_KEYWORDS
+        assert 'deployed' in ACTION_KEYWORDS
+        assert 'rolled back' in ACTION_KEYWORDS
+        assert 'restarted' in ACTION_KEYWORDS
+    
+    def test_all_lowercase(self):
+        """All keywords should be lowercase for case-insensitive matching"""
+        from patterns import ACTION_KEYWORDS
+        for keyword in ACTION_KEYWORDS:
+            assert keyword == keyword.lower(), f"'{keyword}' is not lowercase"
+
+
+class TestSeverityKeywords:
+    """Tests for SEVERITY_KEYWORDS dict"""
+    
+    def test_has_all_severity_levels(self):
+        """Should have keywords for all severity levels"""
+        from patterns import SEVERITY_KEYWORDS
+        assert 'critical' in SEVERITY_KEYWORDS
+        assert 'high' in SEVERITY_KEYWORDS
+        assert 'medium' in SEVERITY_KEYWORDS
+        assert 'low' in SEVERITY_KEYWORDS
+    
+    def test_critical_keywords(self):
+        """Critical level should include strong indicators"""
+        from patterns import SEVERITY_KEYWORDS
+        critical = SEVERITY_KEYWORDS['critical']
+        assert 'down' in critical
+        assert 'outage' in critical
+        assert 'critical' in critical
+    
+    def test_all_lowercase(self):
+        """All severity keywords should be lowercase"""
+        from patterns import SEVERITY_KEYWORDS
+        for level, keywords in SEVERITY_KEYWORDS.items():
+            for keyword in keywords:
+                assert keyword == keyword.lower(), \
+                    f"'{keyword}' in {level} is not lowercase"
+
+
+class TestEntityPatterns:
+    """Tests for ENTITY_PATTERNS - services, IPs, domains"""
+    
+    @pytest.mark.parametrize("text,expected_service", [
+        ("payment-service is down", "payment-service"),
+        ("user_service restarted", "user_service"),
+        ("authService failed", "authservice"),  # Lowercase match
+        ("background-worker crashed", "background-worker"),
+    ])
+    def test_matches_service_names(self, text, expected_service):
+        """Should match common service name patterns"""
+        from patterns import ENTITY_PATTERNS
+        pattern = ENTITY_PATTERNS[0]
+        match = re.search(pattern, text.lower())  # Case-insensitive
+        assert match is not None
+        assert match.group(1) == expected_service
+    
+    @pytest.mark.parametrize("text,expected_ip", [
+        ("server at 192.168.1.1 is down", "192.168.1.1"),
+        ("connecting to 10.0.0.1", "10.0.0.1"),
+        ("IP 172.16.0.1 unresponsive", "172.16.0.1"),
+    ])
+    def test_matches_ip_addresses(self, text, expected_ip):
+        """Should match IPv4 addresses"""
+        from patterns import ENTITY_PATTERNS
+        pattern = ENTITY_PATTERNS[1]
+        match = re.search(pattern, text)
+        assert match is not None
+        assert match.group(1) == expected_ip
+    
+    @pytest.mark.parametrize("text,expected_domain", [
+        ("api.example.com returned 500", "api.example.com"),
+        ("timeout from service.uber.com", "service.uber.com"),
+        ("resolved example.org", "example.org"),
+    ])
+    def test_matches_domains(self, text, expected_domain):
+        """Should match domain names"""
+        from patterns import ENTITY_PATTERNS
+        pattern = ENTITY_PATTERNS[2]
+        match = re.search(pattern, text)
+        assert match is not None
+        assert match.group(1) == expected_domain
+    
+    @pytest.mark.xfail(reason="IP validation (0-255 per octet) done in extractor, not regex")
+    @pytest.mark.parametrize("text", [
+        "999.999.999.999",
+        "256.256.256.256",
+    ])
+    def test_invalid_ips_need_filtering(self, text):
+        """Invalid IPs match regex but will be filtered in extractor"""
+        from patterns import ENTITY_PATTERNS
+        pattern = ENTITY_PATTERNS[1]
+        assert re.search(pattern, text) is None
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
