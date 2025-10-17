@@ -1,0 +1,11 @@
+@sarah 14:23: Seeing elevated error rates on payment-service
+Error: Connection timeout to database at 10.0.15.42
+@mike 14:25: Confirmed. Error rate jumped from 0.1% to 15% 
+@sarah 14:27: Rolling back deploy from 14:15
+@mike 14:28: Rollback in progress, monitoring api.stripe.com
+System: Automatic health check failed at 14:29
+@sarah 14:30: Rollback complete. Error rate dropping
+@mike 14:32: Checking logs from auth-service
+@sarah 14:35: Back to normal levels. All services responding
+@mike 14:37: Confirmed resolution. Error rate back to 0.1%
+@sarah 14:40: Incident resolved. Scheduling postmortem.
