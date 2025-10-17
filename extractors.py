@@ -182,3 +182,150 @@ def identify_actions(text: str) -> List[Dict[str, str]]:
                 break
     
     return actions
+
+def extract_entities(text: str) -> Dict[str, List[str]]:
+    """
+    Extract entities (systems, services, IPs, domains) from incident text.
+    
+    Args:
+        text: Raw incident text
+    
+    Returns:
+        Dict with entity types as keys:
+        - services: list of service names found
+        - ips: list of IP addresses found
+        - domains: list of domains found
+    
+    Example:
+        >>> text = "payment-service at 10.0.0.1 timeout from api.example.com"
+        >>> extract_entities(text)
+        {'services': ['payment-service'], 'ips': ['10.0.0.1'], 
+         'domains': ['api.example.com']}
+    """
+    entities = {
+        'services': [],
+        'ips': [],
+        'domains': [],
+    }
+    
+    text_lower = text.lower()
+    
+    # Extract services
+    service_pattern = ENTITY_PATTERNS['service']
+    for match in re.finditer(service_pattern, text_lower):
+        service = match.group(1)
+        if service not in entities['services']:
+            entities['services'].append(service)
+    
+    # Extract IPs
+    ip_pattern = ENTITY_PATTERNS['ip']
+    for match in re.finditer(ip_pattern, text):
+        ip = match.group(1)
+        if _is_valid_ip(ip) and ip not in entities['ips']:
+            entities['ips'].append(ip)
+    
+    # Extract domains
+    domain_pattern = ENTITY_PATTERNS['domain']
+    for match in re.finditer(domain_pattern, text_lower):
+        domain = match.group(1)
+        if _is_likely_domain(domain) and domain not in entities['domains']:
+            entities['domains'].append(domain)
+    
+    return entities
+
+
+def _is_valid_ip(ip: str) -> bool:
+    """
+    Validate that IP address has valid octets (0-255).
+    Filters out invalid IPs like 999.999.999.999.
+    """
+    octets = ip.split('.')
+    try:
+        return all(0 <= int(octet) <= 255 for octet in octets)
+    except ValueError:
+        return False
+
+
+def _is_likely_domain(domain: str) -> bool:
+    """
+    Basic domain validation to filter false positives.
+    
+    Filters out:
+    - Very short domains (likely false positives)
+    - Domains that are just common words
+    """
+    # Filter very short domains (e.g., "a.b")
+    if len(domain) < 5:
+        return False
+    
+    # Filter common false positives
+    false_positives = ['example.com', 'test.com', 'localhost.local']
+    if domain in false_positives:
+        return False
+    
+    return True
+
+def detect_severity(text: str) -> Dict[str, any]:
+    """
+    Detect incident severity based on keywords in text.
+    
+    Args:
+        text: Raw incident text
+    
+    Returns:
+        Dict with:
+        - level: overall severity (critical/high/medium/low/unknown)
+        - confidence: how confident we are (based on # of indicators)
+        - indicators: list of keywords that influenced the decision
+    
+    Example:
+        >>> text = "payment service is down, complete outage"
+        >>> detect_severity(text)
+        {'level': 'critical', 'confidence': 'high', 
+         'indicators': ['down', 'outage']}
+    """
+    text_lower = text.lower()
+    
+    # Count indicators for each severity level
+    severity_scores = {
+        'critical': [],
+        'high': [],
+        'medium': [],
+        'low': [],
+    }
+    
+    for level, keywords in SEVERITY_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in text_lower:
+                severity_scores[level].append(keyword)
+    
+    # Determine overall severity (highest level with indicators)
+    if severity_scores['critical']:
+        level = 'critical'
+        indicators = severity_scores['critical']
+    elif severity_scores['high']:
+        level = 'high'
+        indicators = severity_scores['high']
+    elif severity_scores['medium']:
+        level = 'medium'
+        indicators = severity_scores['medium']
+    elif severity_scores['low']:
+        level = 'low'
+        indicators = severity_scores['low']
+    else:
+        level = 'unknown'
+        indicators = []
+    
+    # Determine confidence based on number of indicators
+    if len(indicators) >= 3:
+        confidence = 'high'
+    elif len(indicators) >= 1:
+        confidence = 'medium'
+    else:
+        confidence = 'low'
+    
+    return {
+        'level': level,
+        'confidence': confidence,
+        'indicators': indicators,
+    }

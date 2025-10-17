@@ -4,7 +4,7 @@ Tests for extraction logic in extractors.py
 
 import pytest
 from textwrap import dedent
-from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions
+from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions, extract_entities, _is_valid_ip, _is_likely_domain, detect_severity
 
 
 class TestExtractTimeline:
@@ -420,3 +420,289 @@ class TestIdentifyActions:
         # The explicit action should be found
         assert any(a['action'] == 'deployed' and '@sarah' in a['context'] 
                 for a in actions)
+        
+class TestExtractEntities:
+    """Tests for extract_entities function"""
+    
+    def test_extracts_services(self):
+        """Should find service names"""
+        text = dedent("""
+            payment-service is down
+            user_service restarted
+            auth-api responding slowly
+        """).strip()
+        
+        entities = extract_entities(text)
+        
+        assert 'payment-service' in entities['services']
+        assert 'user_service' in entities['services']
+        assert 'auth-api' in entities['services']
+    
+    def test_extracts_ip_addresses(self):
+        """Should find IP addresses"""
+        text = dedent("""
+            server at 192.168.1.1 is down
+            connecting to 10.0.0.1 failed
+            timeout from 172.16.0.1
+        """).strip()
+        
+        entities = extract_entities(text)
+        
+        assert '192.168.1.1' in entities['ips']
+        assert '10.0.0.1' in entities['ips']
+        assert '172.16.0.1' in entities['ips']
+    
+    def test_extracts_domains(self):
+        """Should find domain names"""
+        text = dedent("""
+            api.example.com returned 500
+            timeout from service.uber.com
+            resolved payment.stripe.com
+        """).strip()
+        
+        entities = extract_entities(text)
+        
+        assert 'api.example.com' in entities['domains']
+        assert 'service.uber.com' in entities['domains']
+        assert 'payment.stripe.com' in entities['domains']
+    
+    def test_extracts_mixed_entities(self):
+        """Should find all entity types in same text"""
+        text = "payment-service at 10.0.0.1 calling api.example.com"
+        
+        entities = extract_entities(text)
+        
+        assert len(entities['services']) == 1
+        assert len(entities['ips']) == 1
+        assert len(entities['domains']) == 1
+    
+    def test_deduplicates_entities(self):
+        """Should not list the same entity multiple times"""
+        text = dedent("""
+            payment-service is down
+            payment-service was restarted
+            payment-service is now up
+        """).strip()
+        
+        entities = extract_entities(text)
+        
+        # Should only appear once
+        assert entities['services'].count('payment-service') == 1
+    
+    def test_filters_invalid_ips(self):
+        """Should filter out invalid IP addresses"""
+        text = dedent("""
+            server at 999.999.999.999 (invalid)
+            valid server at 10.0.0.1
+            another invalid 256.256.256.256
+        """).strip()
+        
+        entities = extract_entities(text)
+        
+        # Should only get the valid IP
+        assert '10.0.0.1' in entities['ips']
+        assert '999.999.999.999' not in entities['ips']
+        assert '256.256.256.256' not in entities['ips']
+    
+    def test_case_insensitive_services(self):
+        """Should handle service names regardless of case"""
+        text = "Payment-Service and USER_SERVICE are down"
+        
+        entities = extract_entities(text)
+        
+        # Should be lowercase
+        assert 'payment-service' in entities['services']
+        assert 'user_service' in entities['services']
+    
+    def test_empty_input(self):
+        """Should handle empty input"""
+        entities = extract_entities("")
+        
+        assert entities == {'services': [], 'ips': [], 'domains': []}
+    
+    def test_no_entities_found(self):
+        """Should return empty lists when no entities found"""
+        text = "Just some regular text with no entities"
+        
+        entities = extract_entities(text)
+        
+        assert entities['services'] == []
+        assert entities['ips'] == []
+        assert entities['domains'] == []
+
+
+class TestIsValidIp:
+    """Tests for _is_valid_ip helper"""
+    
+    @pytest.mark.parametrize("ip", [
+        "192.168.1.1",
+        "10.0.0.1",
+        "172.16.0.1",
+        "0.0.0.0",
+        "255.255.255.255",
+    ])
+    def test_accepts_valid_ips(self, ip):
+        """Should accept valid IP addresses"""
+        assert _is_valid_ip(ip) is True
+    
+    @pytest.mark.parametrize("ip", [
+        "999.999.999.999",
+        "256.256.256.256",
+        "300.1.1.1",
+        "1.1.1.256",
+    ])
+    def test_rejects_invalid_ips(self, ip):
+        """Should reject IPs with out-of-range octets"""
+        assert _is_valid_ip(ip) is False
+
+
+class TestIsLikelyDomain:
+    """Tests for _is_likely_domain helper"""
+    
+    @pytest.mark.parametrize("domain", [
+        "api.example.com",
+        "service.uber.com",
+        "payment.stripe.com",
+    ])
+    def test_accepts_valid_domains(self, domain):
+        """Should accept reasonable domain names"""
+        assert _is_likely_domain(domain) is True
+    
+    @pytest.mark.parametrize("domain", [
+        "a.b",          # Too short
+        "x.co",         # Too short
+    ])
+    def test_rejects_too_short(self, domain):
+        """Should reject very short domains"""
+        assert _is_likely_domain(domain) is False
+
+class TestDetectSeverity:
+    """Tests for detect_severity function"""
+    
+    def test_detects_critical_severity(self):
+        """Should identify critical incidents"""
+        text = dedent("""
+            payment service is down
+            complete outage affecting all users
+            critical system failure
+        """).strip()
+        
+        result = detect_severity(text)
+        
+        assert result['level'] == 'critical'
+        assert 'down' in result['indicators']
+        assert 'outage' in result['indicators']
+        assert 'critical' in result['indicators']
+    
+    def test_detects_high_severity(self):
+        """Should identify high severity incidents"""
+        text = dedent("""
+            service is degraded
+            high error rate detected
+            performance issues reported
+        """).strip()
+        
+        result = detect_severity(text)
+        
+        assert result['level'] == 'high'
+        assert 'degraded' in result['indicators']
+        assert 'high error rate' in result['indicators']
+    
+    def test_detects_medium_severity(self):
+        """Should identify medium severity incidents"""
+        text = dedent("""
+            intermittent issues reported
+            affecting some users
+        """).strip()
+        
+        result = detect_severity(text)
+        
+        assert result['level'] == 'medium'
+        assert 'intermittent' in result['indicators']
+        assert 'some users' in result['indicators']
+    
+    def test_detects_low_severity(self):
+        """Should identify low severity incidents"""
+        text = "minor cosmetic issue in UI"
+        
+        result = detect_severity(text)
+        
+        assert result['level'] == 'low'
+        assert 'minor' in result['indicators']
+        assert 'cosmetic' in result['indicators']
+    
+    def test_unknown_severity_when_no_indicators(self):
+        """Should return unknown when no severity indicators found"""
+        text = "Just some regular incident notes with no severity words"
+        
+        result = detect_severity(text)
+        
+        assert result['level'] == 'unknown'
+        assert result['indicators'] == []
+        assert result['confidence'] == 'low'
+    
+    def test_prioritizes_critical_over_lower(self):
+        """Should return critical even if lower severity keywords present"""
+        text = dedent("""
+            system is down (critical)
+            some minor issues also noted
+            intermittent problems too
+        """).strip()
+        
+        result = detect_severity(text)
+        
+        # Critical should win
+        assert result['level'] == 'critical'
+        assert 'down' in result['indicators']
+    
+    def test_confidence_high_with_multiple_indicators(self):
+        """Should have high confidence with 3+ indicators"""
+        text = "critical outage, service down, complete failure"
+        
+        result = detect_severity(text)
+        
+        assert result['confidence'] == 'high'
+        assert len(result['indicators']) >= 3
+    
+    def test_confidence_medium_with_few_indicators(self):
+        """Should have medium confidence with 1-2 indicators"""
+        text = "service is down"
+        
+        result = detect_severity(text)
+        
+        assert result['confidence'] == 'medium'
+        assert len(result['indicators']) >= 1
+        assert len(result['indicators']) < 3
+    
+    def test_confidence_low_with_no_indicators(self):
+        """Should have low confidence with no indicators"""
+        text = "regular incident description"
+        
+        result = detect_severity(text)
+        
+        assert result['confidence'] == 'low'
+    
+    def test_case_insensitive_matching(self):
+        """Should match severity keywords regardless of case"""
+        text = "CRITICAL OUTAGE - Service DOWN"
+        
+        result = detect_severity(text)
+        
+        assert result['level'] == 'critical'
+        assert len(result['indicators']) >= 2
+    
+    def test_multi_word_indicators(self):
+        """Should match multi-word severity indicators"""
+        text = "experiencing high error rate and complete loss of service"
+        
+        result = detect_severity(text)
+        
+        # Should find multi-word indicators
+        assert 'high error rate' in result['indicators'] or 'complete loss' in result['indicators']
+    
+    def test_empty_input(self):
+        """Should handle empty input"""
+        result = detect_severity("")
+        
+        assert result['level'] == 'unknown'
+        assert result['indicators'] == []
