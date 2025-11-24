@@ -2,7 +2,7 @@
 
 > **Note:** This is a small learning project built to explore MCP server development, not production-ready incident management software.
 
-An simple MCP (Model Context Protocol) server that extracts structured information from incident response logs. Built to help analyze chat-based incident communications (Slack, Discord, etc.) by automatically identifying timelines, actions, severity, and involved systems.
+A simple MCP (Model Context Protocol) server that extracts structured information from incident response logs. Built to help analyze chat-based incident communications (Slack, Discord, etc.) by automatically identifying timelines, actions, severity, and involved systems.
 
 ## What It Does
 
