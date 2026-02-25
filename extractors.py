@@ -488,8 +488,9 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
         }),
     }
 
-    # Duration: last timestamp - first timestamp
     parsed = [e for e in timeline if e.get('timestamp')]
+
+    # Wall-clock duration: first → last timestamp
     if len(parsed) >= 2:
         first = datetime.fromisoformat(parsed[0]['timestamp'])
         last = datetime.fromisoformat(parsed[-1]['timestamp'])
@@ -497,7 +498,22 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
         metrics['duration_seconds'] = int(delta.total_seconds())
         metrics['duration'] = _format_duration(int(delta.total_seconds()) // 60)
 
-    # Incident-aware duration: keyword-based boundaries
+    # Incident-aware duration: severity keyword → recovery keyword
+    _compute_incident_duration(timeline, metrics)
+
+    # TTR: first event → last "resolved" action
+    _compute_time_to_resolve(parsed, timeline, actions, metrics)
+
+    # Phase-aware metrics: TTD and TTC from IR phase data
+    _compute_phase_metrics(parsed, timeline, metrics)
+
+    return metrics
+
+
+def _compute_incident_duration(
+    timeline: list[dict], metrics: dict[str, Any],
+) -> None:
+    """Add incident_duration based on severity/recovery keyword boundaries."""
     incident_start, incident_end = _find_incident_boundaries(timeline)
     if incident_start and incident_end and incident_end > incident_start:
         inc_delta = incident_end - incident_start
@@ -506,71 +522,73 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
             int(inc_delta.total_seconds()) // 60
         )
 
-    # TTR heuristic: find last "resolved" action and compute time from start
-    if parsed:
-        for action in reversed(actions):
-            if action['action'] == 'resolved' and action['category'] == 'status':
-                for event in timeline:
-                    if event['text'] == action['context'] and event.get('timestamp'):
-                        first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
-                        resolve_ts = datetime.fromisoformat(event['timestamp'])
-                        ttr_delta = resolve_ts - first_ts
-                        metrics['time_to_resolve'] = _format_duration(
-                            int(ttr_delta.total_seconds()) // 60
-                        )
-                        break
-                break
 
-    # Phase-aware metrics (only when events have ir_phase field)
-    phase_events = [e for e in timeline if e.get('ir_phase')]
-    if phase_events and parsed:
-        first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
-
-        # TTD: time to first detection event with a declaration keyword
-        declaration_keywords = ['declared', 'sev-']
-        detection_events = [
-            e for e in phase_events
-            if e.get('ir_phase') == 'detection' and e.get('timestamp')
-        ]
-        # Check if first event is detection — TTD = 0m
-        if detection_events:
-            first_detection = detection_events[0]
-            first_det_ts = datetime.fromisoformat(first_detection['timestamp'])
-            if first_det_ts == first_ts:
-                metrics['time_to_detect'] = '0m'
-            else:
-                # Look for a declaration keyword in detection events
-                for det_event in detection_events:
-                    det_lower = det_event['text'].lower()
-                    if any(kw in det_lower for kw in declaration_keywords):
-                        det_ts = datetime.fromisoformat(det_event['timestamp'])
-                        ttd_delta = det_ts - first_ts
-                        metrics['time_to_detect'] = _format_duration(
-                            int(ttd_delta.total_seconds()) // 60
-                        )
-                        break
-                else:
-                    # No declaration keyword, use first detection event
-                    ttd_delta = first_det_ts - first_ts
-                    metrics['time_to_detect'] = _format_duration(
-                        int(ttd_delta.total_seconds()) // 60
+def _compute_time_to_resolve(
+    parsed: list[dict], timeline: list[dict],
+    actions: list[dict], metrics: dict[str, Any],
+) -> None:
+    """Add time_to_resolve from first event to last 'resolved' action."""
+    if not parsed:
+        return
+    for action in reversed(actions):
+        if action['action'] == 'resolved' and action['category'] == 'status':
+            for event in timeline:
+                if event['text'] == action['context'] and event.get('timestamp'):
+                    first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
+                    resolve_ts = datetime.fromisoformat(event['timestamp'])
+                    ttr_delta = resolve_ts - first_ts
+                    metrics['time_to_resolve'] = _format_duration(
+                        int(ttr_delta.total_seconds()) // 60
                     )
+                    return
+            return
 
-        # TTC: time to first containment event
-        containment_events = [
-            e for e in phase_events
-            if e.get('ir_phase') == 'containment' and e.get('timestamp')
-        ]
-        if containment_events:
-            contain_ts = datetime.fromisoformat(
-                containment_events[0]['timestamp']
-            )
-            ttc_delta = contain_ts - first_ts
-            metrics['time_to_contain'] = _format_duration(
-                int(ttc_delta.total_seconds()) // 60
-            )
 
-    return metrics
+def _compute_phase_metrics(
+    parsed: list[dict], timeline: list[dict], metrics: dict[str, Any],
+) -> None:
+    """Add TTD and TTC from IR phase classifications."""
+    phase_events = [e for e in timeline if e.get('ir_phase')]
+    if not phase_events or not parsed:
+        return
+
+    first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
+
+    # TTD: time to first detection event (prefer one with declaration keyword)
+    declaration_keywords = ['declared', 'sev-']
+    detection_events = [
+        e for e in phase_events
+        if e.get('ir_phase') == 'detection' and e.get('timestamp')
+    ]
+    if detection_events:
+        first_det_ts = datetime.fromisoformat(detection_events[0]['timestamp'])
+        if first_det_ts == first_ts:
+            metrics['time_to_detect'] = '0m'
+        else:
+            # Prefer event with a declaration keyword
+            for det_event in detection_events:
+                det_lower = det_event['text'].lower()
+                if any(kw in det_lower for kw in declaration_keywords):
+                    det_ts = datetime.fromisoformat(det_event['timestamp'])
+                    metrics['time_to_detect'] = _format_duration(
+                        int((det_ts - first_ts).total_seconds()) // 60
+                    )
+                    break
+            else:
+                metrics['time_to_detect'] = _format_duration(
+                    int((first_det_ts - first_ts).total_seconds()) // 60
+                )
+
+    # TTC: time to first containment event
+    containment_events = [
+        e for e in phase_events
+        if e.get('ir_phase') == 'containment' and e.get('timestamp')
+    ]
+    if containment_events:
+        contain_ts = datetime.fromisoformat(containment_events[0]['timestamp'])
+        metrics['time_to_contain'] = _format_duration(
+            int((contain_ts - first_ts).total_seconds()) // 60
+        )
 
 
 # ── NIST SP 800-61 IR phase mapping ─────────────────────────────────
