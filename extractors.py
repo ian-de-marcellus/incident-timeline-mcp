@@ -962,6 +962,71 @@ def _build_summary_text(
     return "\n".join(summary_parts) if summary_parts else "No significant data extracted"
 
 
+def _try_enrich(events, text, severity, actions, entities):
+    """Attempt LLM enrichment. Returns dict or None."""
+    try:
+        from llm import enrich_timeline, is_available
+        if not is_available():
+            return None
+        return enrich_timeline(events, text, severity, actions, entities)
+    except ImportError:
+        return None
+    except Exception:
+        return None
+
+
+def _apply_enrichment(events, severity, actions, entities, enrichment):
+    """Merge LLM enrichment results into existing analysis data."""
+    # Phase updates: overwrite ir_phase, set confidence and source
+    # Events classified as 'irrelevant' are removed from the timeline.
+    irrelevant_texts = set()
+    if 'phase_updates' in enrichment:
+        irrelevant_indices = set()
+        for update in enrichment['phase_updates']:
+            idx = update['event_index']
+            if 0 <= idx < len(events):
+                if update['ir_phase'] == 'irrelevant':
+                    irrelevant_indices.add(idx)
+                else:
+                    events[idx]['ir_phase'] = update['ir_phase']
+                    events[idx]['phase_confidence'] = update['phase_confidence']
+                    events[idx]['phase_source'] = 'llm'
+        # Collect text of irrelevant events before removing them
+        irrelevant_texts = {events[i]['text'] for i in irrelevant_indices}
+        # Remove irrelevant events (iterate in reverse to preserve indices)
+        for idx in sorted(irrelevant_indices, reverse=True):
+            events.pop(idx)
+        # Remove actions whose context contains removed event text
+        # (action context includes timestamp+actor prefix, event text does not)
+        actions[:] = [
+            a for a in actions
+            if not any(it in a['context'] for it in irrelevant_texts)
+        ]
+
+    # Severity: replace level/confidence/indicators
+    if 'severity_update' in enrichment:
+        update = enrichment['severity_update']
+        severity['level'] = update['level']
+        severity['confidence'] = update['confidence']
+        severity['indicators'] = update['indicators']
+        severity['source'] = 'llm'
+
+    # Actions: append new actions (filtering any that reference removed events)
+    if 'new_actions' in enrichment:
+        for action in enrichment['new_actions']:
+            if not any(it in action['context'] for it in irrelevant_texts):
+                actions.append(action)
+
+    # Entities: reclassify false-positive domains as persons
+    if 'entity_updates' in enrichment:
+        disambiguated = enrichment['entity_updates'].get('disambiguated', [])
+        for item in disambiguated:
+            if item.get('entity_type') == 'person':
+                name = item.get('item', '')
+                if name in entities.get('domains', []):
+                    entities['domains'].remove(name)
+
+
 def _analyze_timeline(events: List[Dict], text: str) -> Dict:
     """
     Run full analysis on pre-built timeline events.
@@ -976,6 +1041,12 @@ def _analyze_timeline(events: List[Dict], text: str) -> Dict:
     severity = detect_severity(text)
 
     _classify_timeline_phases(events)
+
+    # LLM enrichment (no-op without API key or when level is 'none')
+    enrichment = _try_enrich(events, text, severity, actions, entities)
+    if enrichment:
+        _apply_enrichment(events, severity, actions, entities, enrichment)
+
     ir_phases = _group_by_phase(events)
 
     severity_timeline = _build_severity_timeline(events)
