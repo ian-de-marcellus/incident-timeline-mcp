@@ -4,7 +4,13 @@ Tests for extraction logic in extractors.py
 
 import pytest
 from textwrap import dedent
-from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions, extract_entities, _is_valid_ip, _is_likely_domain, _is_likely_service, detect_severity, generate_summary
+from datetime import datetime
+from extractors import (
+    extract_timeline, _find_timestamp, _find_actor, _parse_timestamp_str,
+    _detect_line_severity, _build_severity_timeline, _compute_metrics,
+    identify_actions, extract_entities, _is_valid_ip, _is_likely_domain,
+    _is_likely_service, detect_severity, generate_summary,
+)
 
 
 class TestExtractTimeline:
@@ -1046,3 +1052,584 @@ class TestSeverityNegation:
         """'restored' before 'down' should negate"""
         result = detect_severity("restored the service that was down")
         assert 'is down' not in result['indicators'] or result['level'] != 'critical'
+
+    @pytest.mark.parametrize("text", [
+        "load shedding non-critical endpoints",
+        "non-critical alert from monitoring",
+        "this is a non-critical update",
+    ])
+    def test_hyphenated_negation_not_critical(self, text):
+        """'non-critical' should not trigger critical severity"""
+        result = detect_severity(text)
+        assert 'critical' not in result['indicators']
+        assert result['level'] != 'critical'
+
+    def test_hyphenated_negation_other_keywords(self):
+        """Hyphenated prefixes should negate any severity keyword"""
+        result = detect_severity("pre-degraded state is normal for this service")
+        assert 'degraded' not in result['indicators']
+
+
+# ============================================================
+# Phase 2 regression tests — temporal analysis
+# ============================================================
+
+class TestParseTimestampStr:
+    """Tests for _parse_timestamp_str helper."""
+
+    def test_parses_iso8601(self):
+        """Should parse ISO 8601 timestamps"""
+        result = _parse_timestamp_str("2024-10-15T14:23:15Z")
+        assert result is not None
+        assert result.year == 2024
+        assert result.month == 10
+        assert result.day == 15
+        assert result.hour == 14
+        assert result.minute == 23
+        assert result.second == 15
+
+    def test_parses_full_datetime(self):
+        """Should parse full datetime format"""
+        result = _parse_timestamp_str("2024-10-15 14:23:45")
+        assert result is not None
+        assert result.year == 2024
+        assert result.hour == 14
+        assert result.minute == 23
+        assert result.second == 45
+
+    def test_parses_full_datetime_no_seconds(self):
+        """Should parse full datetime without seconds"""
+        result = _parse_timestamp_str("2024-10-15 14:23")
+        assert result is not None
+        assert result.year == 2024
+        assert result.hour == 14
+        assert result.minute == 23
+
+    def test_parses_time_with_seconds(self):
+        """Should parse time with seconds using sentinel date"""
+        result = _parse_timestamp_str("14:23:45")
+        assert result is not None
+        assert result.year == 1970  # sentinel date
+        assert result.hour == 14
+        assert result.minute == 23
+        assert result.second == 45
+
+    def test_parses_simple_time(self):
+        """Should parse simple HH:MM time using sentinel date"""
+        result = _parse_timestamp_str("14:23")
+        assert result is not None
+        assert result.year == 1970
+        assert result.hour == 14
+        assert result.minute == 23
+
+    def test_returns_none_for_invalid(self):
+        """Should return None for unparseable strings"""
+        assert _parse_timestamp_str("not a time") is None
+        assert _parse_timestamp_str("") is None
+
+    def test_time_only_are_sortable(self):
+        """Time-only values should be sortable among themselves"""
+        t1 = _parse_timestamp_str("14:23")
+        t2 = _parse_timestamp_str("14:30")
+        t3 = _parse_timestamp_str("09:00")
+        assert t3 < t1 < t2
+
+
+class TestTimelineSorting:
+    """Tests for timestamp sorting in extract_timeline."""
+
+    def test_events_include_timestamp_field(self):
+        """Events should have a timestamp field with ISO format"""
+        text = "@sarah 14:23: Something happened"
+        events = extract_timeline(text)
+        assert len(events) == 1
+        assert 'timestamp' in events[0]
+        assert '14:23' in events[0]['timestamp']
+
+    def test_iso_events_include_timestamp(self):
+        """ISO 8601 events should have parsed timestamp"""
+        text = "2024-10-15T14:23:15Z sarah.chen: investigating"
+        events = extract_timeline(text)
+        assert len(events) == 1
+        assert '2024-10-15' in events[0]['timestamp']
+
+    def test_out_of_order_events_sorted(self):
+        """Events should be sorted by timestamp"""
+        text = dedent("""
+            @sarah 14:30: Third event
+            @mike 14:23: First event
+            @alice 14:25: Second event
+        """).strip()
+        events = extract_timeline(text)
+        assert len(events) == 3
+        assert events[0]['time'] == '14:23'
+        assert events[1]['time'] == '14:25'
+        assert events[2]['time'] == '14:30'
+
+    def test_already_sorted_stays_sorted(self):
+        """Already-sorted events should maintain order"""
+        text = dedent("""
+            @sarah 14:23: First
+            @mike 14:25: Second
+            @alice 14:30: Third
+        """).strip()
+        events = extract_timeline(text)
+        assert events[0]['time'] == '14:23'
+        assert events[1]['time'] == '14:25'
+        assert events[2]['time'] == '14:30'
+
+    def test_time_field_preserved(self):
+        """Original time field should be unchanged (backwards compatible)"""
+        text = "@sarah 14:23: Event"
+        events = extract_timeline(text)
+        assert events[0]['time'] == '14:23'
+
+
+class TestDetectLineSeverity:
+    """Tests for _detect_line_severity helper."""
+
+    def test_detects_critical(self):
+        """Should detect critical severity in a line"""
+        result = _detect_line_severity("payment service is down")
+        assert result is not None
+        assert result['level'] == 'critical'
+        assert result['trigger'] == 'is down'
+
+    def test_detects_high(self):
+        """Should detect high severity"""
+        result = _detect_line_severity("service is degraded, latency increasing")
+        assert result is not None
+        assert result['level'] == 'high'
+
+    def test_returns_none_for_no_severity(self):
+        """Should return None when no severity signal"""
+        result = _detect_line_severity("checking the logs now")
+        assert result is None
+
+    def test_negated_keyword_ignored(self):
+        """Should not detect negated severity"""
+        result = _detect_line_severity("resolved the outage successfully")
+        assert result is None
+
+    def test_highest_severity_wins(self):
+        """Should return highest severity when multiple present"""
+        result = _detect_line_severity("critical outage with degraded performance")
+        assert result['level'] == 'critical'
+
+
+class TestSeverityTimeline:
+    """Tests for _build_severity_timeline."""
+
+    def test_tracks_severity_changes(self):
+        """Should record severity transitions"""
+        events = [
+            {'text': 'service is degraded', 'timestamp': '1970-01-01T14:23:00'},
+            {'text': 'service is down completely', 'timestamp': '1970-01-01T14:25:00'},
+            {'text': 'checking the logs', 'timestamp': '1970-01-01T14:27:00'},
+        ]
+        timeline = _build_severity_timeline(events)
+        assert len(timeline) == 2
+        assert timeline[0]['level'] == 'high'
+        assert timeline[1]['level'] == 'critical'
+
+    def test_no_duplicate_for_same_level(self):
+        """Should not record when severity stays the same"""
+        events = [
+            {'text': 'service is degraded', 'timestamp': '1970-01-01T14:23:00'},
+            {'text': 'still slow and degraded', 'timestamp': '1970-01-01T14:25:00'},
+        ]
+        timeline = _build_severity_timeline(events)
+        assert len(timeline) == 1
+
+    def test_empty_events(self):
+        """Should handle empty input"""
+        assert _build_severity_timeline([]) == []
+
+    def test_includes_timestamps(self):
+        """Should include timestamps in severity changes"""
+        events = [
+            {'text': 'service is down', 'timestamp': '2024-10-15T14:23:00'},
+        ]
+        timeline = _build_severity_timeline(events)
+        assert len(timeline) == 1
+        assert timeline[0]['timestamp'] == '2024-10-15T14:23:00'
+
+
+class TestComputeMetrics:
+    """Tests for _compute_metrics."""
+
+    def test_counts_events(self):
+        """Should count total events"""
+        timeline = [
+            {'text': 'event 1', 'actor': 'sarah'},
+            {'text': 'event 2', 'actor': 'mike'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['num_events'] == 2
+
+    def test_counts_unique_responders(self):
+        """Should count unique actors"""
+        timeline = [
+            {'text': 'e1', 'actor': 'sarah'},
+            {'text': 'e2', 'actor': 'mike'},
+            {'text': 'e3', 'actor': 'sarah'},  # duplicate
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['num_responders'] == 2
+
+    def test_computes_duration(self):
+        """Should compute duration from first to last event"""
+        timeline = [
+            {'text': 'first', 'timestamp': '1970-01-01T14:23:00'},
+            {'text': 'middle', 'timestamp': '1970-01-01T14:30:00'},
+            {'text': 'last', 'timestamp': '1970-01-01T14:53:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['duration'] == '30m'
+        assert metrics['duration_seconds'] == 1800
+
+    def test_computes_hours_duration(self):
+        """Should format duration with hours when >= 60 min"""
+        timeline = [
+            {'text': 'first', 'timestamp': '1970-01-01T14:00:00'},
+            {'text': 'last', 'timestamp': '1970-01-01T16:30:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['duration'] == '2h 30m'
+
+    def test_no_duration_for_single_event(self):
+        """Should not compute duration with only one event"""
+        timeline = [
+            {'text': 'only event', 'timestamp': '1970-01-01T14:23:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert 'duration' not in metrics
+
+    def test_empty_timeline(self):
+        """Should handle empty timeline"""
+        metrics = _compute_metrics([], [])
+        assert metrics['num_events'] == 0
+        assert metrics['num_responders'] == 0
+        assert 'duration' not in metrics
+
+    def test_ttr_from_resolved_action(self):
+        """Should compute time to resolve from 'resolved' action"""
+        timeline = [
+            {'text': '@sarah 14:23: issue detected', 'timestamp': '1970-01-01T14:23:00'},
+            {'text': '@mike 14:35: incident resolved', 'timestamp': '1970-01-01T14:35:00'},
+        ]
+        actions = [
+            {'action': 'resolved', 'category': 'status',
+             'context': '@mike 14:35: incident resolved'},
+        ]
+        metrics = _compute_metrics(timeline, actions)
+        assert metrics['time_to_resolve'] == '12m'
+
+
+class TestGenerateSummaryPhase2:
+    """Tests for updated generate_summary with metrics and severity timeline."""
+
+    def test_summary_includes_metrics(self):
+        """Summary should include metrics dict"""
+        text = dedent("""
+            @sarah 14:23: payment-service is down
+            @mike 14:25: investigating
+            @sarah 14:35: incident resolved
+        """).strip()
+        summary = generate_summary(text)
+        assert 'metrics' in summary
+        assert summary['metrics']['num_events'] == 3
+        assert summary['metrics']['num_responders'] == 2
+
+    def test_summary_includes_severity_timeline(self):
+        """Summary should include severity_timeline list"""
+        text = dedent("""
+            @sarah 14:23: payment-service is down
+            @mike 14:30: service restored, back to normal
+        """).strip()
+        summary = generate_summary(text)
+        assert 'severity_timeline' in summary
+        assert len(summary['severity_timeline']) >= 1
+
+    def test_summary_text_includes_duration(self):
+        """Summary text should mention duration"""
+        text = dedent("""
+            @sarah 14:00: issue started
+            @mike 14:30: issue ended
+        """).strip()
+        summary = generate_summary(text)
+        assert '30m' in summary['summary_text']
+
+    def test_summary_text_includes_responders(self):
+        """Summary text should mention responder count"""
+        text = dedent("""
+            @sarah 14:23: event one
+            @mike 14:25: event two
+            @alice 14:30: event three
+        """).strip()
+        summary = generate_summary(text)
+        assert 'Responders: 3' in summary['summary_text']
+
+
+# ── Crypto/fintech domain keyword tests ──────────────────────────────
+
+class TestCryptoSeverityKeywords:
+    """Severity detection for crypto/fintech-specific incidents"""
+
+    @pytest.mark.parametrize("text,expected_level", [
+        ("@ops 14:23: hot wallet drained, funds at risk", "critical"),
+        ("@ops 14:23: wallet compromised, investigating", "critical"),
+        ("@ops 14:23: trading halted across all pairs", "critical"),
+        ("@ops 14:23: withdrawals disabled for all users", "critical"),
+        ("@ops 14:23: possible exploit detected on bridge", "critical"),
+        ("@ops 14:23: unauthorized withdrawal from vault", "critical"),
+        ("@ops 14:23: private key exposed in logs", "critical"),
+    ])
+    def test_crypto_critical_severity(self, text, expected_level):
+        """Crypto-specific critical keywords should be detected"""
+        severity = detect_severity(text)
+        assert severity['level'] == expected_level
+
+    @pytest.mark.parametrize("text,expected_level", [
+        ("@ops 14:23: seeing significant slippage on BTC/USD", "high"),
+        ("@ops 14:23: price feed stale for 5 minutes", "high"),
+        ("@ops 14:23: gas spike causing failed transactions", "high"),
+        ("@ops 14:23: chain congestion delaying confirmations", "high"),
+        ("@ops 14:23: oracle failure on ETH price", "high"),
+        ("@ops 14:23: mass liquidation events triggered", "high"),
+    ])
+    def test_crypto_high_severity(self, text, expected_level):
+        """Crypto-specific high keywords should be detected"""
+        severity = detect_severity(text)
+        assert severity['level'] == expected_level
+
+    @pytest.mark.parametrize("text,expected_level", [
+        ("@ops 14:23: delayed settlement on CRO withdrawals", "medium"),
+        ("@ops 14:23: sync lag on ethereum node", "medium"),
+        ("@ops 14:23: chain reorg detected, 2 blocks deep", "medium"),
+        ("@ops 14:23: pending transactions backing up", "medium"),
+        ("@ops 14:23: block delay on polygon", "medium"),
+    ])
+    def test_crypto_medium_severity(self, text, expected_level):
+        """Crypto-specific medium keywords should be detected"""
+        severity = detect_severity(text)
+        assert severity['level'] == expected_level
+
+
+class TestCryptoActionKeywords:
+    """Action detection for crypto/fintech-specific responses"""
+
+    @pytest.mark.parametrize("text,expected_category", [
+        ("@ops 14:23: halted trading on all pairs", "remediation"),
+        ("@ops 14:23: paused withdrawals as precaution", "remediation"),
+        ("@ops 14:23: disabled deposits pending investigation", "remediation"),
+        ("@ops 14:23: froze affected accounts", "remediation"),
+        ("@ops 14:23: circuit breaker triggered on matching engine", "remediation"),
+    ])
+    def test_crypto_remediation_actions(self, text, expected_category):
+        """Crypto-specific remediation actions should be categorized"""
+        actions = identify_actions(text)
+        categories = [a['category'] for a in actions]
+        assert expected_category in categories
+
+    @pytest.mark.parametrize("text,expected_category", [
+        ("@ops 14:23: tracing transaction on chain", "investigation"),
+        ("@ops 14:23: checking chain for double spend", "investigation"),
+        ("@ops 14:23: reviewing ledger entries", "investigation"),
+        ("@ops 14:23: auditing wallet balances", "investigation"),
+    ])
+    def test_crypto_investigation_actions(self, text, expected_category):
+        """Crypto-specific investigation actions should be categorized"""
+        actions = identify_actions(text)
+        categories = [a['category'] for a in actions]
+        assert expected_category in categories
+
+
+class TestCryptoServiceDetection:
+    """Entity extraction for crypto/fintech infrastructure"""
+
+    @pytest.mark.parametrize("text,expected_service", [
+        ("hot-wallet unreachable", "hot-wallet"),
+        ("matching-engine latency spike", "matching-engine"),
+        ("order-book sync failed", "order-book"),
+        ("price-oracle returning stale data", "price-oracle"),
+        ("custody-vault offline", "custody-vault"),
+        ("eth-bridge unresponsive", "eth-bridge"),
+    ])
+    def test_crypto_services_detected(self, text, expected_service):
+        """Crypto infrastructure names should be recognized as services"""
+        entities = extract_entities(text)
+        assert expected_service in entities['services']
+
+
+class TestCryptoIntegration:
+    """End-to-end test with a realistic crypto incident"""
+
+    def test_crypto_incident_full_extraction(self):
+        """Full extraction from a realistic crypto exchange incident"""
+        text = dedent("""
+            2024-11-20T09:15:00Z sarah.chen: price-oracle returning stale ETH prices, last update 10 min ago
+            2024-11-20T09:16:30Z james.rodriguez: confirmed oracle failure, price feed frozen
+            2024-11-20T09:17:00Z alex.kim: halted trading on ETH pairs as precaution
+            2024-11-20T09:18:00Z sarah.chen: checking chain - ethereum node sync lag detected
+            2024-11-20T09:22:00Z james.rodriguez: disabled deposits for ETH pending fix
+            2024-11-20T09:35:00Z alex.kim: oracle provider switched to backup feed
+            2024-11-20T09:40:00Z sarah.chen: prices updating again, reviewing ledger for bad fills
+            2024-11-20T09:45:00Z james.rodriguez: no bad fills found, re-enabling trading
+            2024-11-20T09:50:00Z alex.kim: trading resumed, deposits re-enabled, monitoring
+        """).strip()
+
+        summary = generate_summary(text)
+
+        # Should detect high severity (oracle failure, price feed)
+        assert summary['severity']['level'] == 'high'
+
+        # Should extract crypto services
+        services = summary['entities']['services']
+        assert 'price-oracle' in services
+
+        # Should find crypto-specific actions
+        action_categories = [a['category'] for a in summary['actions']]
+        assert 'remediation' in action_categories
+        assert 'investigation' in action_categories
+
+        # Should have 3 responders
+        assert summary['metrics']['num_responders'] == 3
+
+        # Should have duration (~35 min)
+        assert summary['metrics']['duration'] == '35m'
+
+        # Events should be sorted and have timestamps
+        timeline = summary['timeline']
+        assert len(timeline) == 9
+        assert all('timestamp' in e for e in timeline)
+
+
+# ── Marketplace / platform keyword tests ──────────────────────────────
+
+class TestPlatformSeverityKeywords:
+    """Severity detection for marketplace/platform-specific incidents"""
+
+    @pytest.mark.parametrize("text,expected_level", [
+        ("@ops 14:23: dispatch down, no trips being matched", "critical"),
+        ("@ops 14:23: matching failed across all regions", "critical"),
+        ("@ops 14:23: trips affected for 50k users", "critical"),
+        ("@ops 14:23: orders stuck in fulfillment pipeline", "critical"),
+        ("@ops 14:23: fulfillment halted, orders backing up", "critical"),
+    ])
+    def test_platform_critical_severity(self, text, expected_level):
+        """Platform-specific critical keywords should be detected"""
+        severity = detect_severity(text)
+        assert severity['level'] == expected_level
+
+    @pytest.mark.parametrize("text,expected_level", [
+        ("@ops 14:23: dispatch latency at 30s, normally 2s", "high"),
+        ("@ops 14:23: routing errors for 10% of requests", "high"),
+        ("@ops 14:23: eta degraded, showing wrong estimates", "high"),
+        ("@ops 14:23: demand spike in downtown, no supply", "high"),
+        ("@ops 14:23: supply shortage in three regions", "high"),
+    ])
+    def test_platform_high_severity(self, text, expected_level):
+        """Platform-specific high keywords should be detected"""
+        severity = detect_severity(text)
+        assert severity['level'] == expected_level
+
+    @pytest.mark.parametrize("text,expected_level", [
+        ("@ops 14:23: eta inaccurate by 5-10 minutes", "medium"),
+        ("@ops 14:23: delayed dispatch in low-priority queue", "medium"),
+        ("@ops 14:23: routing fallback to secondary provider", "medium"),
+    ])
+    def test_platform_medium_severity(self, text, expected_level):
+        """Platform-specific medium keywords should be detected"""
+        severity = detect_severity(text)
+        assert severity['level'] == expected_level
+
+
+class TestPlatformActionKeywords:
+    """Action detection for large-scale platform operations"""
+
+    @pytest.mark.parametrize("text,expected_category", [
+        ("@ops 14:23: rerouting traffic to us-east-2", "remediation"),
+        ("@ops 14:23: load shedding non-critical endpoints", "remediation"),
+        ("@ops 14:23: rate limiting external API calls", "remediation"),
+        ("@ops 14:23: throttling batch jobs to free capacity", "remediation"),
+        ("@ops 14:23: failover to secondary datacenter", "remediation"),
+        ("@ops 14:23: draining traffic from unhealthy nodes", "remediation"),
+    ])
+    def test_platform_remediation_actions(self, text, expected_category):
+        """Platform-specific remediation actions should be categorized"""
+        actions = identify_actions(text)
+        categories = [a['category'] for a in actions]
+        assert expected_category in categories
+
+    @pytest.mark.parametrize("text,expected_category", [
+        ("@ops 14:23: tracing requests through dispatch pipeline", "investigation"),
+        ("@ops 14:23: profiling matching-engine latency", "investigation"),
+    ])
+    def test_platform_investigation_actions(self, text, expected_category):
+        """Platform-specific investigation actions should be categorized"""
+        actions = identify_actions(text)
+        categories = [a['category'] for a in actions]
+        assert expected_category in categories
+
+
+class TestPlatformServiceDetection:
+    """Entity extraction for marketplace/platform infrastructure"""
+
+    @pytest.mark.parametrize("text,expected_service", [
+        ("trip-dispatch unresponsive", "trip-dispatch"),
+        ("ride-matcher latency spike", "ride-matcher"),
+        ("surge-pricing returning errors", "surge-pricing"),
+        ("order-fulfillment queue backed up", "order-fulfillment"),
+        ("geo-routing falling back to defaults", "geo-routing"),
+        ("trip-scheduler not assigning jobs", "trip-scheduler"),
+        ("us-east-shard responding slowly", "us-east-shard"),
+        ("api-ingress dropping connections", "api-ingress"),
+    ])
+    def test_platform_services_detected(self, text, expected_service):
+        """Platform infrastructure names should be recognized as services"""
+        entities = extract_entities(text)
+        assert expected_service in entities['services']
+
+
+class TestPlatformIntegration:
+    """End-to-end test with a realistic marketplace platform incident"""
+
+    def test_dispatch_incident_full_extraction(self):
+        """Full extraction from a realistic dispatch/matching incident"""
+        text = dedent("""
+            2024-11-20T15:00:00Z sarah.chen: trip-dispatch latency spiking, dispatch latency at 30s
+            2024-11-20T15:02:00Z james.rodriguez: confirmed routing errors in us-east, tracing requests
+            2024-11-20T15:04:00Z alex.kim: load shedding non-critical endpoints to free capacity
+            2024-11-20T15:06:00Z sarah.chen: root cause: us-east-shard overloaded after config push
+            2024-11-20T15:08:00Z james.rodriguez: rerouting traffic to us-west, draining us-east
+            2024-11-20T15:15:00Z alex.kim: failover complete, dispatch latency recovering
+            2024-11-20T15:20:00Z sarah.chen: latency back to normal, monitoring
+            2024-11-20T15:30:00Z james.rodriguez: us-east shard rebalanced, rerouting traffic back
+            2024-11-20T15:35:00Z alex.kim: all regions healthy, resolved
+        """).strip()
+
+        summary = generate_summary(text)
+
+        # Should detect high severity (dispatch latency, routing errors)
+        assert summary['severity']['level'] == 'high'
+
+        # Should extract platform services
+        services = summary['entities']['services']
+        assert 'trip-dispatch' in services
+
+        # Should find platform-specific actions
+        action_categories = [a['category'] for a in summary['actions']]
+        assert 'remediation' in action_categories
+        assert 'investigation' in action_categories
+
+        # Should have 3 responders
+        assert summary['metrics']['num_responders'] == 3
+
+        # Should have duration (35 min)
+        assert summary['metrics']['duration'] == '35m'
+
+        # Events should be sorted and have timestamps
+        timeline = summary['timeline']
+        assert len(timeline) == 9
+        assert all('timestamp' in e for e in timeline)

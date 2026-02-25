@@ -285,6 +285,31 @@ class TestActionKeywords:
         assert 'deployed' in remediation
         assert 'rolled back' in remediation
         assert 'restarted' in remediation
+
+    def test_contains_crypto_actions(self):
+        """Should include crypto/fintech-specific action keywords"""
+        from patterns import ACTION_KEYWORDS
+        remediation = ACTION_KEYWORDS['remediation']
+        assert 'halted trading' in remediation
+        assert 'paused withdrawals' in remediation
+        assert 'circuit breaker' in remediation
+        investigation = ACTION_KEYWORDS['investigation']
+        assert 'tracing transaction' in investigation
+        assert 'reviewing ledger' in investigation
+
+    def test_contains_platform_actions(self):
+        """Should include platform/ops-specific action keywords"""
+        from patterns import ACTION_KEYWORDS
+        remediation = ACTION_KEYWORDS['remediation']
+        assert 'rerouting' in remediation
+        assert 'load shedding' in remediation
+        assert 'rate limiting' in remediation
+        assert 'throttling' in remediation
+        assert 'failover' in remediation
+        assert 'draining' in remediation
+        investigation = ACTION_KEYWORDS['investigation']
+        assert 'tracing requests' in investigation
+        assert 'profiling' in investigation
     
     def test_all_lowercase(self):
         """All keywords should be lowercase for case-insensitive matching"""
@@ -312,6 +337,36 @@ class TestSeverityKeywords:
         assert 'is down' in critical
         assert 'outage' in critical
         assert 'critical' in critical
+
+    def test_crypto_severity_keywords(self):
+        """Should include crypto/fintech-specific severity keywords"""
+        from patterns import SEVERITY_KEYWORDS
+        critical = SEVERITY_KEYWORDS['critical']
+        assert 'funds at risk' in critical
+        assert 'wallet compromised' in critical
+        assert 'exploit' in critical
+        high = SEVERITY_KEYWORDS['high']
+        assert 'liquidation' in high
+        assert 'slippage' in high
+        assert 'oracle failure' in high
+        medium = SEVERITY_KEYWORDS['medium']
+        assert 'chain reorg' in medium
+        assert 'delayed settlement' in medium
+
+    def test_platform_severity_keywords(self):
+        """Should include marketplace/platform-specific severity keywords"""
+        from patterns import SEVERITY_KEYWORDS
+        critical = SEVERITY_KEYWORDS['critical']
+        assert 'dispatch down' in critical
+        assert 'matching failed' in critical
+        assert 'trips affected' in critical
+        high = SEVERITY_KEYWORDS['high']
+        assert 'dispatch latency' in high
+        assert 'routing errors' in high
+        assert 'demand spike' in high
+        medium = SEVERITY_KEYWORDS['medium']
+        assert 'eta inaccurate' in medium
+        assert 'delayed dispatch' in medium
     
     def test_all_lowercase(self):
         """All severity keywords should be lowercase"""
@@ -378,6 +433,26 @@ class TestEntityPatterns:
         from patterns import ENTITY_PATTERNS
         pattern = ENTITY_PATTERNS['ip']
         assert re.search(pattern, text) is None
+
+
+class TestDomainInfraKeywords:
+    """Tests for domain-specific additions to INFRA_KEYWORDS"""
+
+    def test_crypto_infra_keywords_present(self):
+        """INFRA_KEYWORDS should include crypto infrastructure terms"""
+        from patterns import INFRA_KEYWORDS
+        for keyword in ['exchange', 'ledger', 'vault', 'wallet',
+                        'bridge', 'oracle', 'chain', 'custody', 'engine', 'book']:
+            assert keyword in INFRA_KEYWORDS, f"'{keyword}' missing from INFRA_KEYWORDS"
+
+    def test_platform_infra_keywords_present(self):
+        """INFRA_KEYWORDS should include platform infrastructure terms"""
+        from patterns import INFRA_KEYWORDS
+        for keyword in ['dispatch', 'routing', 'matcher', 'pricing',
+                        'fulfillment', 'geofence', 'marketplace',
+                        'shard', 'balancer', 'ingress', 'scheduler']:
+            assert keyword in INFRA_KEYWORDS, f"'{keyword}' missing from INFRA_KEYWORDS"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

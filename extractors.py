@@ -4,6 +4,7 @@ Uses patterns from patterns.py to extract structured information.
 """
 
 import re
+from datetime import datetime
 from typing import List, Dict, Optional
 from patterns import (
     TIMESTAMP_PATTERNS,
@@ -14,6 +15,48 @@ from patterns import (
     INFRA_KEYWORDS,
     KNOWN_TLDS,
 )
+
+
+# Sentinel date for time-only timestamps (no date component).
+# Allows time-only values to be sorted among themselves.
+_SENTINEL_DATE = datetime(1970, 1, 1)
+
+
+def _parse_timestamp_str(timestamp_str: str) -> Optional[datetime]:
+    """
+    Parse a raw timestamp string into a datetime object.
+
+    Handles:
+    - ISO 8601: "2024-10-15T14:23:15Z"
+    - Full datetime: "2024-10-15 14:23" or "2024-10-15 14:23:45"
+    - Time with seconds: "14:23:45" (uses sentinel date 1970-01-01)
+    - Simple time: "14:23" (uses sentinel date 1970-01-01)
+    """
+    # ISO 8601
+    if 'T' in timestamp_str and timestamp_str.endswith('Z'):
+        return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+
+    # Full datetime
+    if re.match(r'\d{4}-\d{2}-\d{2}\s', timestamp_str):
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
+            try:
+                return datetime.strptime(timestamp_str, fmt)
+            except ValueError:
+                continue
+
+    # Time-only
+    parts = timestamp_str.split(':')
+    try:
+        if len(parts) == 3:
+            return _SENTINEL_DATE.replace(
+                hour=int(parts[0]), minute=int(parts[1]), second=int(parts[2]))
+        elif len(parts) == 2:
+            return _SENTINEL_DATE.replace(
+                hour=int(parts[0]), minute=int(parts[1]))
+    except (ValueError, IndexError):
+        pass
+
+    return None
 
 
 def extract_timeline(text: str) -> List[Dict[str, str]]:
@@ -51,23 +94,28 @@ def extract_timeline(text: str) -> List[Dict[str, str]]:
         timestamp = _find_timestamp(line)
         if not timestamp:
             continue
-        
+
+        # Parse timestamp into datetime
+        timestamp_parsed = _parse_timestamp_str(timestamp)
+
         # Extract actor if present
         actor = _find_actor(line)
-        
+
         # Create event entry
         event = {
             'time': timestamp,
             'text': line.strip(),
         }
+        if timestamp_parsed:
+            event['timestamp'] = timestamp_parsed.isoformat()
         if actor:
             event['actor'] = actor
-        
+
         events.append(event)
-    
-    # Sort by time (if possible)
-    # For now, keep original order - we can add sorting later
-    
+
+    # Sort by parsed timestamp (unparsed events go last)
+    events.sort(key=lambda e: e.get('timestamp', '\xff'))
+
     return events
 
 
@@ -320,8 +368,94 @@ def _is_negated_severity(line: str, keyword: str) -> bool:
     keyword_idx = line.find(keyword)
     if keyword_idx < 0:
         return False
+    # Hyphenated negation prefix (e.g., "non-critical", "pre-degraded")
+    if keyword_idx > 0 and line[keyword_idx - 1] == '-':
+        return True
     context_before = line[max(0, keyword_idx - 40):keyword_idx]
     return any(neg in context_before for neg in negation_context)
+
+
+def _detect_line_severity(line: str) -> Optional[Dict[str, str]]:
+    """
+    Assess severity of a single line.
+
+    Returns {'level': ..., 'trigger': ...} for the highest-severity
+    non-negated keyword found, or None if no severity signal present.
+    """
+    line_lower = line.lower()
+    for level in ['critical', 'high', 'medium', 'low']:
+        for keyword in SEVERITY_KEYWORDS[level]:
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, line_lower) and not _is_negated_severity(line_lower, keyword):
+                return {'level': level, 'trigger': keyword}
+    return None
+
+
+def _build_severity_timeline(events: List[Dict]) -> List[Dict]:
+    """
+    Track severity changes across sorted timeline events.
+
+    Only records transitions — if two consecutive events both have 'high'
+    severity, only the first is recorded.
+    """
+    severity_timeline = []
+    current_level = None
+    for event in events:
+        line_severity = _detect_line_severity(event['text'])
+        if line_severity and line_severity['level'] != current_level:
+            change = {
+                'level': line_severity['level'],
+                'trigger': line_severity['trigger'],
+            }
+            if event.get('timestamp'):
+                change['timestamp'] = event['timestamp']
+            severity_timeline.append(change)
+            current_level = line_severity['level']
+    return severity_timeline
+
+
+def _compute_metrics(timeline: List[Dict], actions: List[Dict]) -> Dict:
+    """
+    Compute incident metrics from sorted timeline and actions.
+
+    Returns dict with num_events, num_responders, duration, duration_seconds,
+    and time_to_resolve (when a "resolved" action is found).
+    """
+    metrics = {
+        'num_events': len(timeline),
+        'num_responders': len(set(
+            e['actor'] for e in timeline if e.get('actor')
+        )),
+    }
+
+    # Duration: last timestamp - first timestamp
+    parsed = [e for e in timeline if e.get('timestamp')]
+    if len(parsed) >= 2:
+        first = datetime.fromisoformat(parsed[0]['timestamp'])
+        last = datetime.fromisoformat(parsed[-1]['timestamp'])
+        delta = last - first
+        metrics['duration_seconds'] = int(delta.total_seconds())
+        minutes = int(delta.total_seconds()) // 60
+        if minutes >= 60:
+            metrics['duration'] = f"{minutes // 60}h {minutes % 60}m"
+        else:
+            metrics['duration'] = f"{minutes}m"
+
+    # TTR heuristic: find last "resolved" action and compute time from start
+    if parsed:
+        for action in reversed(actions):
+            if action['action'] == 'resolved' and action['category'] == 'status':
+                for event in timeline:
+                    if event['text'] == action['context'] and event.get('timestamp'):
+                        first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
+                        resolve_ts = datetime.fromisoformat(event['timestamp'])
+                        ttr_delta = resolve_ts - first_ts
+                        ttr_minutes = int(ttr_delta.total_seconds()) // 60
+                        metrics['time_to_resolve'] = f"{ttr_minutes}m"
+                        break
+                break
+
+    return metrics
 
 
 def detect_severity(text: str) -> Dict[str, any]:
@@ -424,17 +558,33 @@ def generate_summary(text: str) -> Dict[str, any]:
     actions = identify_actions(text)
     entities = extract_entities(text)
     severity = detect_severity(text)
-    
+
+    # Compute temporal analysis
+    severity_timeline = _build_severity_timeline(timeline)
+    metrics = _compute_metrics(timeline, actions)
+
     # Generate human-readable summary text
     summary_parts = []
-    
-    # Severity
+
+    # Severity with evolution
     if severity['level'] != 'unknown':
-        summary_parts.append(
+        severity_line = (
             f"Severity: {severity['level'].upper()} "
             f"(confidence: {severity['confidence']})"
         )
-    
+        summary_parts.append(severity_line)
+        if len(severity_timeline) > 1:
+            evolution = ' -> '.join(s['level'] for s in severity_timeline)
+            summary_parts.append(f"  Evolution: {evolution}")
+
+    # Metrics
+    if metrics.get('duration'):
+        summary_parts.append(f"Duration: {metrics['duration']}")
+    if metrics.get('time_to_resolve'):
+        summary_parts.append(f"Time to resolve: {metrics['time_to_resolve']}")
+    if metrics['num_responders'] > 0:
+        summary_parts.append(f"Responders: {metrics['num_responders']}")
+
     # Timeline summary
     if timeline:
         summary_parts.append(f"Timeline: {len(timeline)} events recorded")
@@ -442,21 +592,21 @@ def generate_summary(text: str) -> Dict[str, any]:
             summary_parts.append(f"  First event: {timeline[0]['time']}")
         if timeline[-1].get('time'):
             summary_parts.append(f"  Last event: {timeline[-1]['time']}")
-    
+
     # Actions summary
     if actions:
         action_categories = {}
         for action in actions:
             category = action['category']
             action_categories[category] = action_categories.get(category, 0) + 1
-        
+
         summary_parts.append(f"Actions: {len(actions)} total")
         for category, count in action_categories.items():
             summary_parts.append(f"  {category}: {count}")
-    
+
     # Entities summary
     entity_counts = {
-        entity_type: len(entity_list) 
+        entity_type: len(entity_list)
         for entity_type, entity_list in entities.items()
         if entity_list
     }
@@ -464,13 +614,15 @@ def generate_summary(text: str) -> Dict[str, any]:
         summary_parts.append("Entities involved:")
         for entity_type, count in entity_counts.items():
             summary_parts.append(f"  {entity_type}: {count}")
-    
+
     summary_text = "\n".join(summary_parts) if summary_parts else "No significant data extracted"
-    
+
     return {
         'timeline': timeline,
         'actions': actions,
         'entities': entities,
         'severity': severity,
+        'severity_timeline': severity_timeline,
+        'metrics': metrics,
         'summary_text': summary_text,
     }

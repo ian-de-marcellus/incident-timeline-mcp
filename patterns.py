@@ -40,6 +40,10 @@ ACTION_KEYWORDS = {
         'tracing', 'traced',
         'monitoring', 'monitored',
         'watching',
+        # Domain-specific investigation
+        'tracing transaction', 'checking chain', 'reviewing ledger',
+        'tracing requests', 'profiling', 'profiled',
+        'auditing', 'audited',
     ],
     'remediation': [
         'deploying', 'deployed',
@@ -53,6 +57,17 @@ ACTION_KEYWORDS = {
         'scaling', 'scaled',
         'killing', 'killed',
         'stopping', 'stopped',
+        # Platform and operations actions
+        'halted trading', 'paused withdrawals', 'disabled deposits',
+        'froze', 'freezing', 'frozen',
+        'circuit breaker', 'circuit breaker triggered',
+        'paused', 'halted',
+        'rerouting', 'rerouted',
+        'load shedding', 'shedding load',
+        'rate limiting', 'rate limited',
+        'throttling', 'throttled',
+        'failover', 'failed over',
+        'draining', 'drained',
     ],
     'communication': [
         'notifying', 'notified',
@@ -74,13 +89,34 @@ ACTION_KEYWORDS = {
 
 # Severity indicator keywords
 SEVERITY_KEYWORDS = {
-    'critical': ['critical', 'is down', 'went down', 'outage', 'offline', 'unavailable', 
-             'total failure', 'complete loss', 'service down', 'system down'],
-    'high': ['degraded', 'slow', 'timeout', 'elevated error', 
+    'critical': ['critical', 'is down', 'went down', 'outage', 'offline', 'unavailable',
+             'total failure', 'complete loss', 'service down', 'system down',
+             # Financial / exchange
+             'funds at risk', 'wallet compromised', 'trading halted',
+             'withdrawals disabled', 'exploit', 'drained',
+             'unauthorized withdrawal', 'private key exposed',
+             'double spend', 'hot wallet compromised',
+             # Marketplace / platform
+             'dispatch down', 'matching failed', 'trips affected',
+             'orders stuck', 'fulfillment halted'],
+    'high': ['degraded', 'slow', 'timeout', 'elevated error',
              'high error', 'error rate', 'performance issue',
-             'jumped', 'spike', 'surged'],
+             'jumped', 'spike', 'surged',
+             # Financial / exchange
+             'liquidation', 'slippage', 'stale price', 'price feed',
+             'failed transactions', 'gas spike', 'chain congestion',
+             'oracle failure', 'oracle stale', 'deposits disabled',
+             # Marketplace / platform
+             'dispatch latency', 'routing errors', 'eta degraded',
+             'demand spike', 'supply shortage'],
     'medium': ['intermittent', 'occasional', 'sporadic', 'some users',
-               'affecting some'],
+               'affecting some',
+               # Financial / exchange
+               'delayed settlement', 'sync lag', 'chain reorg',
+               'pending transactions', 'block delay',
+               'confirmation delay',
+               # Marketplace / platform
+               'eta inaccurate', 'delayed dispatch', 'routing fallback'],
     'low': ['minor', 'cosmetic', 'edge case', 'rare'],
 }
 
@@ -102,6 +138,13 @@ INFRA_KEYWORDS = {
     'db', 'database', 'cache', 'queue', 'proxy', 'gateway',
     'server', 'cluster', 'node', 'primary', 'secondary',
     'master', 'replica', 'processor', 'handler',
+    # Financial / exchange
+    'exchange', 'ledger', 'vault', 'wallet', 'bridge',
+    'oracle', 'chain', 'custody', 'engine', 'book',
+    # Marketplace / platform
+    'dispatch', 'routing', 'matcher', 'pricing',
+    'fulfillment', 'geofence', 'marketplace',
+    'shard', 'balancer', 'ingress', 'scheduler',
 }
 
 # Known TLDs for domain validation.
