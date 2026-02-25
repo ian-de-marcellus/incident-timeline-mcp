@@ -75,7 +75,6 @@ class TimelineEvent:
 class IncidentMetrics:
     """Computed metrics for an incident."""
     duration: timedelta | None = None
-    time_to_detect: timedelta | None = None
     time_to_contain: timedelta | None = None
     time_to_resolve: timedelta | None = None
     num_responders: int = 0

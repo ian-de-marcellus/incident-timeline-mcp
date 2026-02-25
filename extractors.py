@@ -3,6 +3,7 @@ Core extraction logic for incident timeline analysis.
 Uses patterns from patterns.py to extract structured information.
 """
 
+import json
 import logging
 import re
 from datetime import datetime
@@ -566,31 +567,6 @@ def _compute_phase_metrics(
 
     first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
 
-    # TTD: time to first detection event (prefer one with declaration keyword)
-    declaration_keywords = ['declared', 'sev-']
-    detection_events = [
-        e for e in phase_events
-        if e.get('ir_phase') == 'detection' and e.get('timestamp')
-    ]
-    if detection_events:
-        first_det_ts = datetime.fromisoformat(detection_events[0]['timestamp'])
-        if first_det_ts == first_ts:
-            metrics['time_to_detect'] = '0m'
-        else:
-            # Prefer event with a declaration keyword
-            for det_event in detection_events:
-                det_lower = det_event['text'].lower()
-                if any(kw in det_lower for kw in declaration_keywords):
-                    det_ts = datetime.fromisoformat(det_event['timestamp'])
-                    metrics['time_to_detect'] = _format_duration(
-                        int((det_ts - first_ts).total_seconds()) // 60
-                    )
-                    break
-            else:
-                metrics['time_to_detect'] = _format_duration(
-                    int((first_det_ts - first_ts).total_seconds()) // 60
-                )
-
     # TTC: time to first containment event
     containment_events = [
         e for e in phase_events
@@ -948,8 +924,6 @@ def _build_summary_text(
         summary_parts.append(
             f"Incident duration: {metrics['incident_duration']}"
         )
-    if metrics.get('time_to_detect'):
-        summary_parts.append(f"Time to detect: {metrics['time_to_detect']}")
     if metrics.get('time_to_contain'):
         summary_parts.append(f"Time to contain: {metrics['time_to_contain']}")
     if metrics.get('time_to_resolve'):
@@ -988,6 +962,47 @@ def _build_summary_text(
             summary_parts.append(f"  {entity_type}: {count}")
 
     return "\n".join(summary_parts) if summary_parts else "No significant data extracted"
+
+
+def format_report(result: dict) -> str:
+    """Format a pipeline result dict as a human-readable report.
+
+    Works with output from generate_summary() or parse_slack_export().
+    """
+    sections = []
+
+    # Summary
+    if result.get('summary_text'):
+        sections.append(f"=== SUMMARY ===\n{result['summary_text']}")
+
+    # Timeline with phase tags
+    if result.get('timeline'):
+        lines = []
+        for event in result['timeline']:
+            phase = event.get('ir_phase', 'unknown')
+            time = event.get('time', '')
+            actor = event.get('actor', '')
+            text = event.get('text', '')
+            if actor and text.startswith(actor):
+                # Text already includes actor prefix from Slack parser
+                lines.append(f"  [{phase}] {time} {text}")
+            elif actor:
+                lines.append(f"  [{phase}] {time} {actor}: {text}")
+            else:
+                lines.append(f"  [{phase}] {time} {text}")
+        sections.append("=== TIMELINE ===\n" + "\n".join(lines))
+
+    # Metrics
+    if result.get('metrics'):
+        metrics_json = json.dumps(result['metrics'], indent=2)
+        sections.append(f"=== METRICS ===\n{metrics_json}")
+
+    # Slack metadata (only present for Slack exports)
+    if result.get('slack_metadata'):
+        meta_json = json.dumps(result['slack_metadata'], indent=2)
+        sections.append(f"=== SLACK METADATA ===\n{meta_json}")
+
+    return "\n\n".join(sections)
 
 
 def _get_llm_client():

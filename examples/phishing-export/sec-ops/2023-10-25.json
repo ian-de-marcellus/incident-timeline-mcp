@@ -1,0 +1,112 @@
+[
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Hey Security, specifically <@U02>, I'm getting tickets from Sales. They are receiving emails from `admin@secure-payroll-update.com` asking for logins.",
+    "ts": "1698240000.000100"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "Checking mail logs now. That domain is definitely external.",
+    "ts": "1698240060.000200"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "Confirmed phishing. I'm blocking the domain at the gateway.",
+    "ts": "1698240120.000300"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_SPLUNK",
+    "bot_id": "B01",
+    "username": "Splunk",
+    "text": "Alert: Suspicious Login Detected",
+    "attachments": [
+      {
+        "color": "danger",
+        "title": "[CRITICAL] Impossible Travel Detected",
+        "fallback": "[CRITICAL] Impossible Travel Detected - User: John Doe",
+        "text": "User: <@U04> logged in from Pyongsong, KP (IP: 175.45.176.10).\nPrevious login: 10 mins ago from New York, US.",
+        "ts": 1698240300
+      }
+    ],
+    "ts": "1698240300.000400"
+  },
+  {
+    "type": "message",
+    "user": "U03",
+    "text": "<!channel> That is a compromised executive account. Full lockdown immediately.",
+    "ts": "1698240315.000500"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_OKTA",
+    "bot_id": "B02",
+    "username": "Okta",
+    "text": "Account Suspended",
+    "attachments": [
+      {
+        "color": "warning",
+        "title": "User Suspended",
+        "text": "User: <@U04> has been suspended by Administrator <@U02>.\nReason: Security Incident.",
+        "footer": "Okta System Log",
+        "ts": 1698240360
+      }
+    ],
+    "ts": "1698240360.000600"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "Session revoked. Password reset initiated. Investigating lateral movement.",
+    "ts": "1698240380.000700",
+    "thread_ts": "1698240300.000400",
+    "reply_count": 1
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Hey unrelated, is there leftover pizza in the breakroom?",
+    "ts": "1698240400.000800" 
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "Not now Sarah.",
+    "ts": "1698240410.000900",
+    "thread_ts": "1698240400.000800"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "I'm purging the phishing email from all 45 inboxes now.",
+    "ts": "1698240450.001000"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_GOOGLE",
+    "bot_id": "B03",
+    "username": "Google Workspace",
+    "text": "Investigation Tool Action",
+    "attachments": [
+      {
+        "color": "good",
+        "title": "Bulk Email Deletion Complete",
+        "text": "Criteria: From `admin@secure-payroll-update.com`\nAction: Delete\nCount: 45 messages removed.",
+        "ts": 1698240600
+      }
+    ],
+    "ts": "1698240600.001100"
+  },
+  {
+    "type": "message",
+    "user": "U03",
+    "text": "Good catch everyone. Let's start the post-mortem doc.",
+    "ts": "1698240660.001200"
+  }
+]

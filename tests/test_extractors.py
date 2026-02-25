@@ -1949,17 +1949,6 @@ class TestComputeMetricsPhase3:
         metrics = _compute_metrics(timeline, [])
         assert metrics['time_to_contain'] == '7m'
 
-    def test_ttd_zero_when_first_event_is_detection(self):
-        """TTD = 0m when first event is already detection"""
-        timeline = [
-            {'text': 'Alert fired on service', 'timestamp': '1970-01-01T14:23:00',
-             'ir_phase': 'detection'},
-            {'text': 'Investigating', 'timestamp': '1970-01-01T14:25:00',
-             'ir_phase': 'analysis'},
-        ]
-        metrics = _compute_metrics(timeline, [])
-        assert metrics['time_to_detect'] == '0m'
-
     def test_no_ttc_without_containment(self):
         """Should not have TTC without containment events"""
         timeline = [
@@ -1972,13 +1961,12 @@ class TestComputeMetricsPhase3:
         assert 'time_to_contain' not in metrics
 
     def test_backward_compatible_no_phases(self):
-        """Without ir_phase, no TTD/TTC should be computed"""
+        """Without ir_phase, no TTC should be computed"""
         timeline = [
             {'text': 'event 1', 'timestamp': '1970-01-01T14:23:00'},
             {'text': 'event 2', 'timestamp': '1970-01-01T14:25:00'},
         ]
         metrics = _compute_metrics(timeline, [])
-        assert 'time_to_detect' not in metrics
         assert 'time_to_contain' not in metrics
 
 
@@ -2099,9 +2087,6 @@ class TestIRPhaseIntegration:
         assert 'detection' in phase_names
         assert 'analysis' in phase_names
         assert 'containment' in phase_names
-
-        # TTD should be 0m (first event is detection)
-        assert result['metrics'].get('time_to_detect') == '0m'
 
         # TTC should be ~7m (14:23 → 14:30)
         ttc = result['metrics'].get('time_to_contain')
