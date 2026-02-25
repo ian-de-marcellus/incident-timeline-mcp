@@ -843,9 +843,9 @@ class TestGracefulDegradation:
         # but if something unexpected happens, _enrich catches it too
         assert isinstance(result, dict) or result is None
 
-    def test_generate_summary_without_llm(self):
-        """generate_summary should work perfectly without LLM."""
-        from extractors import generate_summary
+    def test_pipeline_without_llm(self):
+        """Pipeline should work without LLM client."""
+        from extractors import _analyze_timeline, extract_timeline
         text = (
             "@sarah 14:23: Alert: payment-service showing elevated error rates\n"
             "@mike 14:25: Investigating - checking payment-service logs\n"
@@ -854,10 +854,8 @@ class TestGracefulDegradation:
             "@sarah 14:40: Rollback complete, errors returning to normal\n"
             "@mike 14:45: Confirmed - all metrics stable, incident resolved"
         )
-        # This calls _get_llm_client() which reads .env — but without
-        # a valid key or with level='none', it returns (None, 'none')
-        # and _analyze_timeline skips enrichment entirely.
-        result = generate_summary(text)
+        # No client param = no enrichment, no config reads
+        result = _analyze_timeline(extract_timeline(text), text)
         assert result['timeline']
         assert result['actions']
         assert result['severity']['level'] != 'unknown'

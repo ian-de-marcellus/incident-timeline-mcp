@@ -1,10 +1,8 @@
 """
 Test environment configuration.
 
-Sets LLM_ENRICHMENT=none so tests that call generate_summary()
-or parse_slack_export() don't make real API calls. This is
-environment configuration, not module patching — equivalent to
-setting env vars in CI.
+Sets LLM_ENRICHMENT=none so tests that call parse_slack_export()
+or generate_summary() don't make real API calls.
 """
 
 import pytest

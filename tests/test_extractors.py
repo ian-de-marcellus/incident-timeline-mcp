@@ -727,8 +727,8 @@ class TestDetectSeverity:
         assert result['indicators'] == []
 
 class TestGenerateSummary:
-    """Tests for generate_summary function"""
-    
+    """Tests for the analysis pipeline (extract_timeline + _analyze_timeline)."""
+
     def test_combines_all_extractors(self):
         """Should run all extractors and include their results"""
         text = dedent("""
@@ -737,39 +737,39 @@ class TestGenerateSummary:
             @sarah 14:30: deployed fix to 10.0.0.1
             @mike 14:35: service restored, monitoring api.example.com
         """).strip()
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         # Should have all components
         assert 'timeline' in summary
         assert 'actions' in summary
         assert 'entities' in summary
         assert 'severity' in summary
         assert 'summary_text' in summary
-        
+
         # Check each component has data
         assert len(summary['timeline']) == 4
         assert len(summary['actions']) > 0
         assert summary['severity']['level'] == 'critical'
-    
+
     def test_generates_readable_summary_text(self):
         """Should create human-readable summary"""
         text = dedent("""
             @sarah 14:23: payment-service down, critical issue
             @mike 14:25: deployed fix
         """).strip()
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         summary_text = summary['summary_text']
-        
+
         # Should mention severity
         assert 'CRITICAL' in summary_text.upper()
         # Should mention timeline
         assert '2 events' in summary_text.lower()
         # Should mention actions
         assert 'actions' in summary_text.lower()
-    
+
     def test_includes_timeline_timerange(self):
         """Should show first and last event times"""
         text = dedent("""
@@ -777,15 +777,15 @@ class TestGenerateSummary:
             @mike 14:30: Middle event
             @alice 14:45: Last event
         """).strip()
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         summary_text = summary['summary_text']
-        
+
         # Should show time range
         assert '14:23' in summary_text
         assert '14:45' in summary_text
-    
+
     def test_categorizes_actions_in_summary(self):
         """Should break down actions by category"""
         text = dedent("""
@@ -794,62 +794,62 @@ class TestGenerateSummary:
             @alice notified stakeholders
             @bob resolved the ticket
         """).strip()
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         summary_text = summary['summary_text']
-        
+
         # Should mention action categories
         assert 'investigation' in summary_text.lower()
         assert 'remediation' in summary_text.lower()
         assert 'communication' in summary_text.lower()
         assert 'status' in summary_text.lower()
-    
+
     def test_lists_entity_counts(self):
         """Should summarize entities found"""
         text = dedent("""
             payment-service at 10.0.0.1 calling api.example.com
             user-service at 10.0.0.2 calling auth.example.com
         """).strip()
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         summary_text = summary['summary_text']
-        
+
         # Should mention entity types and counts
         assert 'services' in summary_text.lower()
         assert 'ips' in summary_text.lower()
         assert 'domains' in summary_text.lower()
-    
+
     def test_handles_minimal_incident(self):
         """Should handle incident with minimal information"""
         text = "@sarah 14:23: Something happened"
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         # Should still have structure
         assert summary['timeline']
         assert summary['severity']['level'] == 'unknown'
         assert summary['summary_text']
-    
+
     def test_handles_empty_input(self):
         """Should handle empty input gracefully"""
-        summary = generate_summary("")
-        
+        summary = _analyze_timeline(extract_timeline(""), "")
+
         assert summary['timeline'] == []
         assert summary['actions'] == []
         assert summary['entities'] == {'services': [], 'ips': [], 'domains': []}
         assert summary['severity']['level'] == 'unknown'
         assert 'No significant data' in summary['summary_text']
-    
+
     def test_no_data_produces_clear_message(self):
         """Should clearly indicate when no data extracted"""
         text = "Just some random text with no incident information"
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         assert 'No significant data' in summary['summary_text']
-    
+
     def test_complete_incident_example(self):
         """Integration test with realistic incident"""
         text = dedent("""
@@ -860,27 +860,53 @@ class TestGenerateSummary:
             @sarah 14:35: Back to normal levels. Monitoring api.stripe.com
             @mike 14:40: Incident resolved. Postmortem scheduled.
         """).strip()
-        
-        summary = generate_summary(text)
-        
+
+        summary = _analyze_timeline(extract_timeline(text), text)
+
         # Timeline
         assert len(summary['timeline']) == 6
         assert summary['timeline'][0]['actor'] == 'sarah'
-        
+
         # Actions
         assert len(summary['actions']) >= 3  # rolling back, monitoring, resolved
-        
+
         # Entities
         assert 'payment-service' in summary['entities']['services']
         assert 'api.stripe.com' in summary['entities']['domains']
-        
+
         # Severity (might be medium/high due to error rates)
         assert summary['severity']['level'] in ['high', 'medium', 'unknown']
-        
+
         # Summary text should be comprehensive
         assert len(summary['summary_text']) > 50
 
-        print(summary)
+
+class TestGenerateSummaryBoundary:
+    """Boundary tests for the public generate_summary entry point."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_llm(self, monkeypatch):
+        monkeypatch.setenv('LLM_ENRICHMENT', 'none')
+
+    def test_returns_expected_keys(self):
+        """generate_summary should return the full result shape."""
+        text = dedent("""
+            @sarah 14:23: payment-service is down, critical outage
+            @mike 14:25: investigating
+        """).strip()
+        summary = generate_summary(text)
+        expected_keys = {
+            'timeline', 'actions', 'entities', 'severity',
+            'summary_text', 'metrics', 'severity_timeline',
+            'ir_phases',
+        }
+        assert set(summary.keys()) == expected_keys
+
+    def test_empty_input(self):
+        """generate_summary should handle empty input gracefully."""
+        summary = generate_summary("")
+        assert summary['timeline'] == []
+        assert summary['severity']['level'] == 'unknown'
 
 
 # ============================================================
@@ -1329,7 +1355,7 @@ class TestComputeMetrics:
 
 
 class TestGenerateSummaryPhase2:
-    """Tests for updated generate_summary with metrics and severity timeline."""
+    """Tests for metrics and severity timeline in the analysis pipeline."""
 
     def test_summary_includes_metrics(self):
         """Summary should include metrics dict"""
@@ -1338,7 +1364,7 @@ class TestGenerateSummaryPhase2:
             @mike 14:25: investigating
             @sarah 14:35: incident resolved
         """).strip()
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
         assert 'metrics' in summary
         assert summary['metrics']['num_events'] == 3
         assert summary['metrics']['num_responders'] == 2
@@ -1349,7 +1375,7 @@ class TestGenerateSummaryPhase2:
             @sarah 14:23: payment-service is down
             @mike 14:30: service restored, back to normal
         """).strip()
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
         assert 'severity_timeline' in summary
         assert len(summary['severity_timeline']) >= 1
 
@@ -1359,7 +1385,7 @@ class TestGenerateSummaryPhase2:
             @sarah 14:00: issue started
             @mike 14:30: issue ended
         """).strip()
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
         assert '30m' in summary['summary_text']
 
     def test_summary_text_includes_responders(self):
@@ -1369,7 +1395,7 @@ class TestGenerateSummaryPhase2:
             @mike 14:25: event two
             @alice 14:30: event three
         """).strip()
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
         assert 'Responders: 3' in summary['summary_text']
 
 
@@ -1481,7 +1507,7 @@ class TestCryptoIntegration:
             2024-11-20T09:50:00Z alex.kim: trading resumed, deposits re-enabled, monitoring
         """).strip()
 
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
 
         # Should detect high severity (oracle failure, price feed)
         assert summary['severity']['level'] == 'high'
@@ -1611,7 +1637,7 @@ class TestPlatformIntegration:
             2024-11-20T15:35:00Z alex.kim: all regions healthy, resolved
         """).strip()
 
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
 
         # Should detect high severity (dispatch latency, routing errors)
         assert summary['severity']['level'] == 'high'
@@ -1704,17 +1730,22 @@ class TestAnalyzeTimeline:
         assert result['timeline'][0].get('ir_phase')
         assert result['ir_phases']
 
-    def test_backward_compatible_with_generate_summary(self):
-        """_analyze_timeline should produce same keys as generate_summary."""
-        text = dedent("""
-            @sarah 14:23: Seeing elevated errors on checkout-service
-            @bob 14:25: Rolling back the deployment
-            @sarah 14:30: Metrics returning to normal
-        """).strip()
-        old_result = generate_summary(text)
-        new_events = extract_timeline(text)
-        new_result = _analyze_timeline(new_events, text)
-        assert set(old_result.keys()) == set(new_result.keys())
+    def test_returns_expected_keys(self):
+        """_analyze_timeline should return all expected result keys."""
+        events = [
+            {'time': '14:23', 'text': 'Seeing elevated errors',
+             'timestamp': '1970-01-01T14:23:00', 'actor': 'sarah'},
+            {'time': '14:25', 'text': 'Rolling back deployment',
+             'timestamp': '1970-01-01T14:25:00', 'actor': 'bob'},
+        ]
+        text = "sarah: Seeing elevated errors\nbob: Rolling back deployment"
+        result = _analyze_timeline(events, text)
+        expected_keys = {
+            'timeline', 'actions', 'entities', 'severity',
+            'summary_text', 'metrics', 'severity_timeline',
+            'ir_phases',
+        }
+        assert set(result.keys()) == expected_keys
 
 
 # ============================================================
@@ -2000,7 +2031,7 @@ class TestMapToFramework:
 
 
 class TestGenerateSummaryPhase3:
-    """Tests for generate_summary with IR phase integration."""
+    """Tests for IR phase integration in the analysis pipeline."""
 
     def test_summary_includes_ir_phases(self):
         """Summary should include ir_phases dict"""
@@ -2010,7 +2041,7 @@ class TestGenerateSummaryPhase3:
             @sarah 14:30: Rolling back deploy
             @mike 14:35: Back to normal
         """).strip()
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
         assert 'ir_phases' in summary
         assert isinstance(summary['ir_phases'], dict)
 
@@ -2022,7 +2053,7 @@ class TestGenerateSummaryPhase3:
             @sarah 14:30: Rolling back deploy
             @mike 14:35: Back to normal
         """).strip()
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
         assert 'IR Phases' in summary['summary_text']
 
     def test_summary_text_includes_ttc(self):
@@ -2033,7 +2064,7 @@ class TestGenerateSummaryPhase3:
             @sarah 14:30: Rolling back deploy
             @mike 14:35: Back to normal
         """).strip()
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
         assert 'Time to contain' in summary['summary_text']
 
 
@@ -2084,8 +2115,8 @@ class TestIRPhaseIntegration:
         assert 'Detection' in result['phase_summary']
         assert '->' in result['phase_summary']
 
-    def test_generate_summary_with_phases(self):
-        """generate_summary should include phase data for realistic input"""
+    def test_analyze_timeline_with_phases(self):
+        """Analysis pipeline should include phase data for realistic input"""
         text = dedent("""
             @sarah 14:23: Seeing elevated errors on payment-service
             @mike 14:25: Investigating the database
@@ -2095,7 +2126,7 @@ class TestIRPhaseIntegration:
             @mike 14:40: Postmortem scheduled for tomorrow
         """).strip()
 
-        summary = generate_summary(text)
+        summary = _analyze_timeline(extract_timeline(text), text)
 
         assert 'ir_phases' in summary
         assert len(summary['ir_phases']) >= 3
