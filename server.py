@@ -155,6 +155,24 @@ async def list_tools() -> list[Tool]:
                 "required": ["messages_json"]
             }
         ),
+        Tool(
+            name="analyze_resource",
+            description="Read a sample incident resource by URI and run the full analysis pipeline. "
+                        "Automatically detects format (plaintext or Slack export) and returns "
+                        "structured incident analysis with timeline, actions, entities, severity, "
+                        "IR phase mapping, and metrics.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "uri": {
+                        "type": "string",
+                        "description": "Resource URI (e.g. incident://examples/simple, "
+                                       "incident://examples/detailed, incident://examples/slack-export)"
+                    }
+                },
+                "required": ["uri"]
+            }
+        ),
     ]
 
 @app.list_resources()
@@ -185,6 +203,36 @@ async def list_resources() -> list[Resource]:
                         "parse_slack_export tool",
             mimeType="application/json",
         ),
+        Resource(
+            uri="incident://examples/phishing-export",
+            name="Phishing Incident (Slack export)",
+            description="Phishing attack with executive account compromise — "
+                        "12 messages with Splunk, Okta, and Google Workspace "
+                        "bot alerts across detection, containment, and eradication",
+            mimeType="application/json",
+        ),
+        Resource(
+            uri="incident://examples/coinflux-export",
+            name="Database Migration Incident (Slack export)",
+            description="Database migration locks causing wallet API latency — "
+                        "12 messages with Datadog, PagerDuty, and GitHub bot alerts",
+            mimeType="application/json",
+        ),
+        Resource(
+            uri="incident://examples/company-export",
+            name="Multi-Day Incident (Slack export)",
+            description="5-day image-processor memory leak incident from false alarm "
+                        "through crash loop to root cause fix — 24 messages across "
+                        "5 days with noise (birthday bot, taco chat)",
+            mimeType="application/json",
+        ),
+        Resource(
+            uri="incident://examples/security-export",
+            name="Cross-Year Security Incident (Slack export)",
+            description="DDoS attack escalating to account compromise spanning "
+                        "New Year's Eve — 8 messages across 2 days with AWS WAF alerts",
+            mimeType="application/json",
+        ),
     ]
 
 
@@ -206,6 +254,36 @@ async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
         content = json.dumps({"messages": messages, "users": users})
         return [ReadResourceContents(content=content, mime_type="application/json")]
 
+    if uri_str == "incident://examples/phishing-export":
+        messages = (EXAMPLES_DIR / "phishing-export" / "sec-ops" / "2023-10-25.json").read_text()
+        users = (EXAMPLES_DIR / "phishing-export" / "users.json").read_text()
+        content = json.dumps({"messages": messages, "users": users})
+        return [ReadResourceContents(content=content, mime_type="application/json")]
+
+    if uri_str == "incident://examples/coinflux-export":
+        messages = (EXAMPLES_DIR / "coinflux-export" / "incidents-sev1" / "2023-11-14.json").read_text()
+        users = (EXAMPLES_DIR / "coinflux-export" / "users.json").read_text()
+        content = json.dumps({"messages": messages, "users": users})
+        return [ReadResourceContents(content=content, mime_type="application/json")]
+
+    if uri_str == "incident://examples/company-export":
+        channel_dir = EXAMPLES_DIR / "company-export" / "team-backend"
+        messages = json.dumps({
+            p.stem: p.read_text() for p in sorted(channel_dir.glob("*.json"))
+        })
+        users = (EXAMPLES_DIR / "company-export" / "users.json").read_text()
+        content = json.dumps({"messages": messages, "users": users})
+        return [ReadResourceContents(content=content, mime_type="application/json")]
+
+    if uri_str == "incident://examples/security-export":
+        channel_dir = EXAMPLES_DIR / "security-export" / "incidents-security"
+        messages = json.dumps({
+            p.stem: p.read_text() for p in sorted(channel_dir.glob("*.json"))
+        })
+        users = (EXAMPLES_DIR / "security-export" / "users.json").read_text()
+        content = json.dumps({"messages": messages, "users": users})
+        return [ReadResourceContents(content=content, mime_type="application/json")]
+
     raise ValueError(f"Unknown resource: {uri_str}")
 
 
@@ -217,8 +295,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
     # Route to appropriate extractor
     try:
+        # analyze_resource: read resource URI and run appropriate pipeline
+        if name == "analyze_resource":
+            uri = arguments.get("uri", "")
+            if not uri:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({"error": "No uri provided"})
+                )]
+            resource_contents = await read_resource(uri)
+            content = resource_contents[0].content
+            mime = resource_contents[0].mime_type or ""
+            client, level = _get_llm_client()
+            if "json" in mime:
+                data = json.loads(content)
+                result = parse_slack_export(
+                    data["messages"], data.get("users"),
+                    client=client, level=level,
+                )
+            else:
+                result = generate_summary(content)
+
         # Slack parser uses messages_json, not text
-        if name == "parse_slack_export":
+        elif name == "parse_slack_export":
             messages_json = arguments.get("messages_json", "")
             if not messages_json:
                 return [TextContent(

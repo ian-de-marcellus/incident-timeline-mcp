@@ -4,8 +4,16 @@ Tests for MCP server: imports, resource handlers, and tool routing.
 
 import asyncio
 import json
+from unittest.mock import patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _disable_llm():
+    """Patch _get_llm_client so no real API calls are made."""
+    with patch("extractors._get_llm_client", return_value=(None, "none")):
+        yield
 
 
 # ── Smoke tests ──────────────────────────────────────────────────────
@@ -36,10 +44,10 @@ class TestExtractorsStillWork:
 class TestListResources:
     """Test list_resources() returns correct resource metadata."""
 
-    def test_returns_three_resources(self):
+    def test_returns_seven_resources(self):
         from server import list_resources
         resources = asyncio.run(list_resources())
-        assert len(resources) == 3
+        assert len(resources) == 7
 
     def test_resource_uris(self):
         from server import list_resources
@@ -49,6 +57,10 @@ class TestListResources:
             "incident://examples/simple",
             "incident://examples/detailed",
             "incident://examples/slack-export",
+            "incident://examples/phishing-export",
+            "incident://examples/coinflux-export",
+            "incident://examples/company-export",
+            "incident://examples/security-export",
         }
 
     def test_plaintext_resources_have_text_mimetype(self):
@@ -58,11 +70,18 @@ class TestListResources:
         assert by_uri["incident://examples/simple"].mimeType == "text/plain"
         assert by_uri["incident://examples/detailed"].mimeType == "text/plain"
 
-    def test_slack_resource_has_json_mimetype(self):
+    def test_slack_resources_have_json_mimetype(self):
         from server import list_resources
         resources = asyncio.run(list_resources())
         by_uri = {str(r.uri): r for r in resources}
-        assert by_uri["incident://examples/slack-export"].mimeType == "application/json"
+        for uri in [
+            "incident://examples/slack-export",
+            "incident://examples/phishing-export",
+            "incident://examples/coinflux-export",
+            "incident://examples/company-export",
+            "incident://examples/security-export",
+        ]:
+            assert by_uri[uri].mimeType == "application/json"
 
     def test_all_resources_have_names_and_descriptions(self):
         from server import list_resources
@@ -120,6 +139,46 @@ class TestReadResource:
         users = json.loads(data["users"])
         assert isinstance(users, list)
         assert len(users) > 0
+
+    def test_phishing_export_is_valid_json(self):
+        content = self._read("incident://examples/phishing-export")
+        data = json.loads(content)
+        assert "messages" in data
+        assert "users" in data
+        messages = json.loads(data["messages"])
+        assert isinstance(messages, list)
+        assert len(messages) > 0
+
+    def test_coinflux_export_is_valid_json(self):
+        content = self._read("incident://examples/coinflux-export")
+        data = json.loads(content)
+        assert "messages" in data
+        assert "users" in data
+        messages = json.loads(data["messages"])
+        assert isinstance(messages, list)
+        assert len(messages) > 0
+
+    def test_company_export_is_multiday(self):
+        content = self._read("incident://examples/company-export")
+        data = json.loads(content)
+        assert "messages" in data
+        assert "users" in data
+        messages = json.loads(data["messages"])
+        # Multi-day: date-keyed object, not a flat array
+        assert isinstance(messages, dict)
+        assert len(messages) == 5
+        assert "2023-11-06" in messages
+
+    def test_security_export_is_multiday(self):
+        content = self._read("incident://examples/security-export")
+        data = json.loads(content)
+        assert "messages" in data
+        assert "users" in data
+        messages = json.loads(data["messages"])
+        assert isinstance(messages, dict)
+        assert len(messages) == 2
+        assert "2023-12-31" in messages
+        assert "2024-01-01" in messages
 
     def test_unknown_uri_raises(self):
         from server import read_resource
@@ -200,5 +259,23 @@ class TestToolRouting:
     def test_missing_messages_json_returns_error(self):
         from server import call_tool
         result = asyncio.run(call_tool("parse_slack_export", {}))
+        data = json.loads(result[0].text)
+        assert "error" in data
+
+    def test_analyze_resource_plaintext(self):
+        data = self._call("analyze_resource", {"uri": "incident://examples/simple"})
+        assert isinstance(data, dict)
+        assert "timeline" in data
+        assert "severity" in data
+
+    def test_analyze_resource_slack(self):
+        data = self._call("analyze_resource", {"uri": "incident://examples/slack-export"})
+        assert isinstance(data, dict)
+        assert "timeline" in data
+        assert "slack_metadata" in data
+
+    def test_analyze_resource_missing_uri_returns_error(self):
+        from server import call_tool
+        result = asyncio.run(call_tool("analyze_resource", {}))
         data = json.loads(result[0].text)
         assert "error" in data

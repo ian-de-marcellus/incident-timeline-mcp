@@ -115,6 +115,7 @@ Without this, the tool runs regex-only — still functional, just lower accuracy
 
 | Tool | Input | Output |
 |------|-------|--------|
+| `analyze_resource` | Resource URI | Reads a sample incident resource and runs the full pipeline automatically |
 | `generate_summary` | Incident text | Full analysis: timeline, actions, entities, severity, IR phases, metrics |
 | `parse_slack_export` | Slack JSON (messages + optional users) | Same as above, plus Slack metadata (noise filtered, thread count) |
 | `extract_timeline` | Incident text | Chronological events with timestamps, actors, IR phases |
@@ -132,6 +133,10 @@ The server exposes sample incidents that Claude can discover and read:
 | `incident://examples/simple` | Payment-service incident, plaintext (11 events) |
 | `incident://examples/detailed` | Database performance incident, plaintext (30 events, 5 responders) |
 | `incident://examples/slack-export` | Slack workspace export with bot messages (18 messages) |
+| `incident://examples/phishing-export` | Phishing attack with executive account compromise (12 messages) |
+| `incident://examples/coinflux-export` | Database migration locks causing API latency (12 messages) |
+| `incident://examples/company-export` | Multi-day memory leak incident across 5 days (24 messages) |
+| `incident://examples/security-export` | DDoS escalating to account compromise, cross-year (8 messages) |
 
 ## Project Structure
 
