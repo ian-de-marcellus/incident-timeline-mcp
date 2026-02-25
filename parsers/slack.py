@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from models import NormalizedMessage
-from extractors import _analyze_timeline, _get_llm_client
+from extractors import _analyze_timeline
 from patterns import (
     NOISE_BOT_NAMES, OPS_BOT_NAMES, NOISE_PHRASES,
     ACTION_KEYWORDS, SEVERITY_KEYWORDS, IR_PHASE_KEYWORDS,
@@ -361,6 +361,8 @@ def _is_incident_relevant(msg: NormalizedMessage) -> bool:
 def parse_slack_export(
     messages_json: str,
     users_json: Optional[str] = None,
+    client=None,
+    level: str = 'none',
 ) -> dict:
     """
     Public entry point: parse Slack export JSON and run full analysis.
@@ -371,6 +373,8 @@ def parse_slack_export(
             - An object keyed by date with arrays as values (multi-day),
               e.g. {"2024-10-15": [...], "2024-10-16": [...]}
         users_json: Optional JSON string of users.json array
+        client: Optional Anthropic client for LLM enrichment
+        level: Enrichment level ('none', 'low', 'regular')
 
     Returns:
         Full incident summary dict with additional slack_metadata key.
@@ -406,7 +410,6 @@ def parse_slack_export(
     events = _build_events_from_messages(normalized)
     plaintext = reconstruct_plaintext(normalized)
 
-    client, level = _get_llm_client()
     result = _analyze_timeline(events, plaintext, client=client, level=level)
 
     # Count threads and unique users (from filtered set)

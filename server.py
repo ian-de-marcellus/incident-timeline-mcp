@@ -18,6 +18,7 @@ from extractors import (
     detect_severity,
     generate_summary,
     map_to_framework,
+    _get_llm_client,
 )
 from parsers.slack import parse_slack_export
 
@@ -168,7 +169,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     text=json.dumps({"error": "No messages_json provided"})
                 )]
             users_json = arguments.get("users_json")
-            result = parse_slack_export(messages_json, users_json)
+            client, level = _get_llm_client()
+            result = parse_slack_export(
+                messages_json, users_json, client=client, level=level,
+            )
         else:
             # All other tools use text
             text = arguments.get("text", "")
