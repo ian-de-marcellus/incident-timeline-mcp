@@ -191,13 +191,15 @@ def _is_likely_actor(actor: str) -> bool:
     if actor.lower() in common_labels:
         return False
     
-    # Filter domain names - check if it ends with common TLD
-    common_tlds = ['.com', '.org', '.net', '.io', '.co', '.edu', '.gov']
+    # Filter domain names - check if it ends with a known TLD
     actor_lower = actor.lower()
-    if any(actor_lower.endswith(tld) for tld in common_tlds):
-        return False
+    if '.' in actor_lower:
+        tld = actor_lower.rsplit('.', 1)[-1]
+        if tld in KNOWN_TLDS:
+            return False
     
     return True
+
 
 def identify_actions(text: str) -> List[Dict[str, str]]:
     """
@@ -229,7 +231,9 @@ def identify_actions(text: str) -> List[Dict[str, str]]:
         line_lower = line.lower()
         
         # Check each category of actions (word-boundary matching to avoid
-        # substring collisions like "scaled" matching inside "escalated")
+        # substring collisions like "scaled" matching inside "escalated").
+        # Only record the first action found per line.
+        found = False
         for category, keywords in ACTION_KEYWORDS.items():
             for keyword in keywords:
                 pattern = r'\b' + re.escape(keyword) + r'\b'
@@ -239,13 +243,13 @@ def identify_actions(text: str) -> List[Dict[str, str]]:
                         'category': category,
                         'context': line,
                     })
-                    # Only record first action found per line
+                    found = True
                     break
-            if actions and actions[-1]['context'] == line:
-                # Already found an action in this line
+            if found:
                 break
     
     return actions
+
 
 def extract_entities(text: str) -> Dict[str, List[str]]:
     """
@@ -355,6 +359,7 @@ def _is_likely_domain(domain: str) -> bool:
 
     return True
 
+
 def _is_negated_severity(line: str, keyword: str) -> bool:
     """
     Check if a severity keyword is negated by surrounding context.
@@ -375,6 +380,12 @@ def _is_negated_severity(line: str, keyword: str) -> bool:
     return any(neg in context_before for neg in negation_context)
 
 
+def _severity_keyword_in_line(line_lower: str, keyword: str) -> bool:
+    """Check if a severity keyword appears non-negated in a lowercased line."""
+    pattern = r'\b' + re.escape(keyword) + r'\b'
+    return bool(re.search(pattern, line_lower)) and not _is_negated_severity(line_lower, keyword)
+
+
 def _detect_line_severity(line: str) -> Optional[Dict[str, str]]:
     """
     Assess severity of a single line.
@@ -385,8 +396,7 @@ def _detect_line_severity(line: str) -> Optional[Dict[str, str]]:
     line_lower = line.lower()
     for level in ['critical', 'high', 'medium', 'low']:
         for keyword in SEVERITY_KEYWORDS[level]:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, line_lower) and not _is_negated_severity(line_lower, keyword):
+            if _severity_keyword_in_line(line_lower, keyword):
                 return {'level': level, 'trigger': keyword}
     return None
 
@@ -489,10 +499,9 @@ def detect_severity(text: str) -> Dict[str, any]:
 
     for level, keywords in SEVERITY_KEYWORDS.items():
         for keyword in keywords:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            # Check each line; count keyword once if it appears non-negated
+            # Count keyword once if it appears non-negated on any line
             for line in lines:
-                if re.search(pattern, line) and not _is_negated_severity(line, keyword):
+                if _severity_keyword_in_line(line, keyword):
                     severity_scores[level].append(keyword)
                     break
     

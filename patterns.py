@@ -3,8 +3,6 @@ Pattern definitions for incident text analysis.
 Contains regex patterns and keyword lists for extracting structured data.
 """
 
-import re
-
 # Timestamp patterns - matches common time formats in incident logs
 # Note: Some ambiguous patterns (like "ratio of 3:45") will match and are
 # filtered by context analysis in extractors.py
