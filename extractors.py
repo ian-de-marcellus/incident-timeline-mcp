@@ -7,6 +7,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Any
+from models import AnalysisState
 from patterns import (
     TIMESTAMP_PATTERNS,
     ACTOR_PATTERNS,
@@ -913,15 +914,15 @@ def detect_severity(text: str) -> dict[str, Any]:
     }
 
 def _build_summary_text(
-    timeline: list[dict],
-    actions: list[dict],
-    entities: dict[str, list[str]],
-    severity: dict,
+    state: AnalysisState,
     severity_timeline: list[dict],
     ir_phases: dict[str, list[dict]],
     metrics: dict,
 ) -> str:
     """Assemble human-readable summary text from analysis results."""
+    timeline, actions, entities, severity = (
+        state.events, state.actions, state.entities, state.severity,
+    )
     summary_parts = []
 
     # Severity with evolution
@@ -1005,26 +1006,29 @@ def _get_llm_client():
         return None, 'none'
 
 
-def _enrich(events, text, severity, actions, entities, client, level):
+def _enrich(state: AnalysisState, client, level: str) -> dict | None:
     """Run LLM enrichment with injected client. Returns dict or None."""
     try:
         from llm import enrich_timeline, DEFAULT_MODEL
         return enrich_timeline(
-            events, text, severity, actions, entities,
-            client=client, model=DEFAULT_MODEL, level=level,
+            state, client=client, model=DEFAULT_MODEL, level=level,
         )
     except Exception as e:
         logger.warning("LLM enrichment failed: %s", e)
         return None
 
 
-def _apply_enrichment(events, severity, actions, entities, enrichment):
+def _apply_enrichment(state: AnalysisState, enrichment: dict) -> None:
     """Merge LLM enrichment results into existing analysis data."""
+    events, actions, entities, severity = (
+        state.events, state.actions, state.entities, state.severity,
+    )
+
     # Phase updates: overwrite ir_phase, set confidence and source
     # Events classified as 'irrelevant' are removed from the timeline.
-    irrelevant_texts = set()
+    irrelevant_texts: set[str] = set()
     if 'phase_updates' in enrichment:
-        irrelevant_indices = set()
+        irrelevant_indices: set[int] = set()
         for update in enrichment['phase_updates']:
             idx = update['event_index']
             if 0 <= idx < len(events):
@@ -1087,34 +1091,35 @@ def _analyze_timeline(
     Pass client and level to enable LLM enrichment. Without a client,
     enrichment is skipped entirely.
     """
-    actions = identify_actions(text)
-    entities = extract_entities(text)
-    severity = detect_severity(text)
+    state = AnalysisState(
+        events=events,
+        text=text,
+        actions=identify_actions(text),
+        entities=extract_entities(text),
+        severity=detect_severity(text),
+    )
 
-    _classify_timeline_phases(events)
+    _classify_timeline_phases(state.events)
 
     # LLM enrichment (no-op without client)
     if client and level != 'none':
-        enrichment = _enrich(events, text, severity, actions, entities,
-                             client, level)
+        enrichment = _enrich(state, client, level)
         if enrichment:
-            _apply_enrichment(events, severity, actions, entities, enrichment)
+            _apply_enrichment(state, enrichment)
 
-    ir_phases = _group_by_phase(events)
-
-    severity_timeline = _build_severity_timeline(events)
-    metrics = _compute_metrics(events, actions)
+    ir_phases = _group_by_phase(state.events)
+    severity_timeline = _build_severity_timeline(state.events)
+    metrics = _compute_metrics(state.events, state.actions)
 
     summary_text = _build_summary_text(
-        events, actions, entities, severity,
-        severity_timeline, ir_phases, metrics,
+        state, severity_timeline, ir_phases, metrics,
     )
 
     return {
-        'timeline': events,
-        'actions': actions,
-        'entities': entities,
-        'severity': severity,
+        'timeline': state.events,
+        'actions': state.actions,
+        'entities': state.entities,
+        'severity': state.severity,
         'severity_timeline': severity_timeline,
         'ir_phases': ir_phases,
         'metrics': metrics,

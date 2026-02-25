@@ -7,6 +7,7 @@ No module globals, no monkeypatching, no conftest fixtures needed.
 
 from unittest.mock import patch, MagicMock
 
+from models import AnalysisState
 from llm.enrichment import (
     enrich_ir_phases,
     enrich_severity,
@@ -15,6 +16,17 @@ from llm.enrichment import (
     enrich_timeline,
     _call_haiku,
 )
+
+
+def _make_state(events=None, text="text", severity=None, actions=None, entities=None):
+    """Build an AnalysisState with sensible defaults for testing."""
+    return AnalysisState(
+        events=events or [],
+        text=text,
+        actions=actions or [],
+        entities=entities if entities is not None else {'services': [], 'ips': [], 'domains': []},
+        severity=severity if severity is not None else {'level': 'unknown', 'confidence': 'low', 'indicators': []},
+    )
 
 
 # ── Test helpers ─────────────────────────────────────────────────────
@@ -482,37 +494,27 @@ class TestEnrichTimeline:
 
     def test_all_passes_run_on_regular(self):
         """In 'regular' mode, all four passes should be attempted."""
-        events = [
-            {'text': 'Something', 'time': '14:00', 'timestamp': '2024-01-01T14:00:00',
-             'ir_phase': 'analysis', 'phase_confidence': 'low'},
-        ]
-        severity = {'level': 'unknown', 'confidence': 'low', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': ['sarah.chen']}
+        state = _make_state(
+            events=[{'text': 'Something', 'time': '14:00', 'timestamp': '2024-01-01T14:00:00',
+                      'ir_phase': 'analysis', 'phase_confidence': 'low'}],
+            entities={'services': [], 'ips': [], 'domains': ['sarah.chen']},
+        )
 
         # Client that returns None-equivalent (no tool_use block)
         response = _make_response(_make_text_block("no result"))
         mock_client = self._make_mock_client(response)
 
-        enrich_timeline(
-            events, "text", severity, actions, entities,
-            client=mock_client, model=MODEL, level="regular",
-        )
+        enrich_timeline(state, client=mock_client, model=MODEL, level="regular")
         # All four passes attempted — 4 API calls
         assert mock_client.messages.create.call_count == 4
 
     def test_partial_failure(self):
         """Should continue when some passes fail."""
-        events = [
-            {'text': 'Alert', 'time': '14:00', 'ir_phase': 'detection', 'phase_confidence': 'low'},
-        ]
-        severity = {'level': 'unknown', 'confidence': 'low', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': []}
+        state = _make_state(
+            events=[{'text': 'Alert', 'time': '14:00', 'ir_phase': 'detection', 'phase_confidence': 'low'}],
+        )
 
-        call_count = [0]
         def side_effect(**kwargs):
-            call_count[0] += 1
             tool_name = kwargs.get('tool_choice', {}).get('name', '')
             if tool_name == 'classify_phases':
                 raise Exception("Phase API down")
@@ -527,28 +529,22 @@ class TestEnrichTimeline:
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = side_effect
 
-        result = enrich_timeline(
-            events, "text", severity, actions, entities,
-            client=mock_client, model=MODEL, level="regular",
-        )
+        result = enrich_timeline(state, client=mock_client, model=MODEL, level="regular")
         assert 'severity_update' in result
         assert 'phase_updates' not in result
 
     def test_nothing_needed(self):
         """Should return empty dict when all data is already high-confidence."""
-        events = [
-            {'text': 'Alert fired', 'time': '14:00', 'ir_phase': 'detection', 'phase_confidence': 'high'},
-        ]
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': ['degraded']}
-        actions = [{'action': 'detected', 'category': 'investigation', 'context': 'Alert fired'}]
-        entities = {'services': ['auth-api'], 'ips': [], 'domains': []}
+        state = _make_state(
+            events=[{'text': 'Alert fired', 'time': '14:00', 'ir_phase': 'detection', 'phase_confidence': 'high'}],
+            severity={'level': 'high', 'confidence': 'high', 'indicators': ['degraded']},
+            actions=[{'action': 'detected', 'category': 'investigation', 'context': 'Alert fired'}],
+            entities={'services': ['auth-api'], 'ips': [], 'domains': []},
+        )
 
         mock_client = MagicMock()
 
-        result = enrich_timeline(
-            events, "text", severity, actions, entities,
-            client=mock_client, model=MODEL, level="regular",
-        )
+        result = enrich_timeline(state, client=mock_client, model=MODEL, level="regular")
         # No low-conf phases, severity already confident, all events have actions,
         # no suspicious domains — nothing to enrich
         assert result == {}
@@ -605,37 +601,32 @@ class TestPipelineIntegration:
         """_apply_enrichment should update event phases from LLM results."""
         from extractors import _apply_enrichment
 
-        events = [
-            {'text': 'Something', 'ir_phase': 'analysis', 'phase_confidence': 'low'},
-            {'text': 'Other', 'ir_phase': 'analysis', 'phase_confidence': 'high'},
-        ]
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': []}
-
+        state = _make_state(
+            events=[
+                {'text': 'Something', 'ir_phase': 'analysis', 'phase_confidence': 'low'},
+                {'text': 'Other', 'ir_phase': 'analysis', 'phase_confidence': 'high'},
+            ],
+            severity={'level': 'high', 'confidence': 'high', 'indicators': []},
+        )
         enrichment = {
             'phase_updates': [
                 {'event_index': 0, 'ir_phase': 'containment', 'phase_confidence': 'medium'},
             ]
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+        _apply_enrichment(state, enrichment)
 
-        assert events[0]['ir_phase'] == 'containment'
-        assert events[0]['phase_confidence'] == 'medium'
-        assert events[0]['phase_source'] == 'llm'
-        assert events[1]['ir_phase'] == 'analysis'
-        assert 'phase_source' not in events[1]
+        assert state.events[0]['ir_phase'] == 'containment'
+        assert state.events[0]['phase_confidence'] == 'medium'
+        assert state.events[0]['phase_source'] == 'llm'
+        assert state.events[1]['ir_phase'] == 'analysis'
+        assert 'phase_source' not in state.events[1]
 
     def test_apply_enrichment_severity(self):
         """_apply_enrichment should update severity from LLM results."""
         from extractors import _apply_enrichment
 
-        events = []
-        severity = {'level': 'unknown', 'confidence': 'low', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': []}
-
+        state = _make_state()
         enrichment = {
             'severity_update': {
                 'level': 'high',
@@ -644,40 +635,38 @@ class TestPipelineIntegration:
             }
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+        _apply_enrichment(state, enrichment)
 
-        assert severity['level'] == 'high'
-        assert severity['source'] == 'llm'
+        assert state.severity['level'] == 'high'
+        assert state.severity['source'] == 'llm'
 
     def test_apply_enrichment_actions(self):
         """_apply_enrichment should append new LLM-found actions."""
         from extractors import _apply_enrichment
 
-        events = []
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': []}
-        actions = [{'action': 'deployed', 'category': 'remediation', 'context': 'Deployed fix'}]
-        entities = {'services': [], 'ips': [], 'domains': []}
-
+        state = _make_state(
+            actions=[{'action': 'deployed', 'category': 'remediation', 'context': 'Deployed fix'}],
+            severity={'level': 'high', 'confidence': 'high', 'indicators': []},
+        )
         enrichment = {
             'new_actions': [
                 {'action': 'switched', 'category': 'remediation', 'context': 'Switched traffic', 'source': 'llm'},
             ]
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+        _apply_enrichment(state, enrichment)
 
-        assert len(actions) == 2
-        assert actions[1]['source'] == 'llm'
+        assert len(state.actions) == 2
+        assert state.actions[1]['source'] == 'llm'
 
     def test_apply_enrichment_entities(self):
         """_apply_enrichment should remove false-positive domains."""
         from extractors import _apply_enrichment
 
-        events = []
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': ['sarah.chen', 'api.example.com']}
-
+        state = _make_state(
+            entities={'services': [], 'ips': [], 'domains': ['sarah.chen', 'api.example.com']},
+            severity={'level': 'high', 'confidence': 'high', 'indicators': []},
+        )
         enrichment = {
             'entity_updates': {
                 'disambiguated': [
@@ -686,24 +675,23 @@ class TestPipelineIntegration:
             }
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+        _apply_enrichment(state, enrichment)
 
-        assert 'sarah.chen' not in entities['domains']
-        assert 'api.example.com' in entities['domains']
+        assert 'sarah.chen' not in state.entities['domains']
+        assert 'api.example.com' in state.entities['domains']
 
     def test_apply_enrichment_irrelevant_removed(self):
         """_apply_enrichment should remove events classified as irrelevant."""
         from extractors import _apply_enrichment
 
-        events = [
-            {'text': 'Deploying v2.0', 'ir_phase': 'detection', 'phase_confidence': 'low'},
-            {'text': 'Alert fired', 'ir_phase': 'detection', 'phase_confidence': 'high'},
-            {'text': 'Happy Monday', 'ir_phase': 'analysis', 'phase_confidence': 'low'},
-        ]
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': []}
-
+        state = _make_state(
+            events=[
+                {'text': 'Deploying v2.0', 'ir_phase': 'detection', 'phase_confidence': 'low'},
+                {'text': 'Alert fired', 'ir_phase': 'detection', 'phase_confidence': 'high'},
+                {'text': 'Happy Monday', 'ir_phase': 'analysis', 'phase_confidence': 'low'},
+            ],
+            severity={'level': 'high', 'confidence': 'high', 'indicators': []},
+        )
         enrichment = {
             'phase_updates': [
                 {'event_index': 0, 'ir_phase': 'irrelevant', 'phase_confidence': 'medium'},
@@ -711,53 +699,52 @@ class TestPipelineIntegration:
             ]
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+        _apply_enrichment(state, enrichment)
 
-        assert len(events) == 1
-        assert events[0]['text'] == 'Alert fired'
+        assert len(state.events) == 1
+        assert state.events[0]['text'] == 'Alert fired'
 
     def test_apply_enrichment_irrelevant_removes_orphan_actions(self):
         """Removing irrelevant events should also remove their associated actions."""
         from extractors import _apply_enrichment
 
-        events = [
-            {'text': 'Deploying v2.0', 'ir_phase': 'detection', 'phase_confidence': 'low'},
-            {'text': 'Alert fired', 'ir_phase': 'detection', 'phase_confidence': 'high'},
-        ]
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': []}
-        actions = [
-            {'action': 'deploying', 'category': 'remediation',
-             'context': '2024-01-01T10:00:00Z sarah: Deploying v2.0'},
-            {'action': 'alerted', 'category': 'communication',
-             'context': '2024-01-01T14:00:00Z mike: Alert fired'},
-        ]
-        entities = {'services': [], 'ips': [], 'domains': []}
-
+        state = _make_state(
+            events=[
+                {'text': 'Deploying v2.0', 'ir_phase': 'detection', 'phase_confidence': 'low'},
+                {'text': 'Alert fired', 'ir_phase': 'detection', 'phase_confidence': 'high'},
+            ],
+            actions=[
+                {'action': 'deploying', 'category': 'remediation',
+                 'context': '2024-01-01T10:00:00Z sarah: Deploying v2.0'},
+                {'action': 'alerted', 'category': 'communication',
+                 'context': '2024-01-01T14:00:00Z mike: Alert fired'},
+            ],
+            severity={'level': 'high', 'confidence': 'high', 'indicators': []},
+        )
         enrichment = {
             'phase_updates': [
                 {'event_index': 0, 'ir_phase': 'irrelevant', 'phase_confidence': 'medium'},
             ]
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+        _apply_enrichment(state, enrichment)
 
-        assert len(events) == 1
-        assert len(actions) == 1
-        assert 'Alert fired' in actions[0]['context']
+        assert len(state.events) == 1
+        assert len(state.actions) == 1
+        assert 'Alert fired' in state.actions[0]['context']
 
     def test_apply_enrichment_irrelevant_mixed_with_reclassify(self):
         """_apply_enrichment should handle mix of irrelevant and reclassified events."""
         from extractors import _apply_enrichment
 
-        events = [
-            {'text': 'Casual chat', 'ir_phase': 'detection', 'phase_confidence': 'low'},
-            {'text': 'Investigating issue', 'ir_phase': 'detection', 'phase_confidence': 'low'},
-            {'text': 'Rolled back', 'ir_phase': 'analysis', 'phase_confidence': 'low'},
-        ]
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': []}
-
+        state = _make_state(
+            events=[
+                {'text': 'Casual chat', 'ir_phase': 'detection', 'phase_confidence': 'low'},
+                {'text': 'Investigating issue', 'ir_phase': 'detection', 'phase_confidence': 'low'},
+                {'text': 'Rolled back', 'ir_phase': 'analysis', 'phase_confidence': 'low'},
+            ],
+            severity={'level': 'high', 'confidence': 'high', 'indicators': []},
+        )
         enrichment = {
             'phase_updates': [
                 {'event_index': 0, 'ir_phase': 'irrelevant', 'phase_confidence': 'medium'},
@@ -766,30 +753,29 @@ class TestPipelineIntegration:
             ]
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+        _apply_enrichment(state, enrichment)
 
-        assert len(events) == 2
-        assert events[0]['ir_phase'] == 'analysis'
-        assert events[0]['phase_source'] == 'llm'
-        assert events[1]['ir_phase'] == 'containment'
+        assert len(state.events) == 2
+        assert state.events[0]['ir_phase'] == 'analysis'
+        assert state.events[0]['phase_source'] == 'llm'
+        assert state.events[1]['ir_phase'] == 'containment'
 
     def test_apply_enrichment_out_of_bounds_index(self):
         """_apply_enrichment should handle out-of-bounds event indices safely."""
         from extractors import _apply_enrichment
 
-        events = [{'text': 'Something', 'ir_phase': 'analysis', 'phase_confidence': 'low'}]
-        severity = {'level': 'high', 'confidence': 'high', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': []}
-
+        state = _make_state(
+            events=[{'text': 'Something', 'ir_phase': 'analysis', 'phase_confidence': 'low'}],
+            severity={'level': 'high', 'confidence': 'high', 'indicators': []},
+        )
         enrichment = {
             'phase_updates': [
                 {'event_index': 99, 'ir_phase': 'containment', 'phase_confidence': 'medium'},
             ]
         }
 
-        _apply_enrichment(events, severity, actions, entities, enrichment)
-        assert events[0]['ir_phase'] == 'analysis'  # Unchanged
+        _apply_enrichment(state, enrichment)
+        assert state.events[0]['ir_phase'] == 'analysis'  # Unchanged
 
 
 # ── TestGetLlmClient ─────────────────────────────────────────────────
@@ -836,7 +822,8 @@ class TestGracefulDegradation:
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = RuntimeError("Boom")
 
-        result = _enrich([], "text", {}, [], {}, mock_client, 'regular')
+        state = _make_state()
+        result = _enrich(state, mock_client, 'regular')
         # enrich_timeline will catch the exception internally,
         # but if something unexpected happens, _enrich catches it too
         assert isinstance(result, dict) or result is None
@@ -866,13 +853,11 @@ class TestEnrichmentLevels:
 
     def test_low_skips_actions_and_entities(self):
         """Level 'low' should only run phases and severity."""
-        events = [
-            {'text': 'Alert', 'time': '14:00', 'timestamp': '2024-01-01T14:00:00',
-             'ir_phase': 'detection', 'phase_confidence': 'low'},
-        ]
-        severity = {'level': 'unknown', 'confidence': 'low', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': ['sarah.chen']}
+        state = _make_state(
+            events=[{'text': 'Alert', 'time': '14:00', 'timestamp': '2024-01-01T14:00:00',
+                      'ir_phase': 'detection', 'phase_confidence': 'low'}],
+            entities={'services': [], 'ips': [], 'domains': ['sarah.chen']},
+        )
 
         calls = []
         def track_calls(**kwargs):
@@ -883,10 +868,7 @@ class TestEnrichmentLevels:
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = track_calls
 
-        enrich_timeline(
-            events, "text", severity, actions, entities,
-            client=mock_client, model=MODEL, level="low",
-        )
+        enrich_timeline(state, client=mock_client, model=MODEL, level="low")
         assert 'classify_phases' in calls
         assert 'assess_severity' in calls
         assert 'identify_actions' not in calls
@@ -894,13 +876,11 @@ class TestEnrichmentLevels:
 
     def test_regular_runs_all(self):
         """Level 'regular' should run all four passes."""
-        events = [
-            {'text': 'Alert', 'time': '14:00', 'timestamp': '2024-01-01T14:00:00',
-             'ir_phase': 'detection', 'phase_confidence': 'low'},
-        ]
-        severity = {'level': 'unknown', 'confidence': 'low', 'indicators': []}
-        actions = []
-        entities = {'services': [], 'ips': [], 'domains': ['sarah.chen']}
+        state = _make_state(
+            events=[{'text': 'Alert', 'time': '14:00', 'timestamp': '2024-01-01T14:00:00',
+                      'ir_phase': 'detection', 'phase_confidence': 'low'}],
+            entities={'services': [], 'ips': [], 'domains': ['sarah.chen']},
+        )
 
         calls = []
         def track_calls(**kwargs):
@@ -911,10 +891,7 @@ class TestEnrichmentLevels:
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = track_calls
 
-        enrich_timeline(
-            events, "text", severity, actions, entities,
-            client=mock_client, model=MODEL, level="regular",
-        )
+        enrich_timeline(state, client=mock_client, model=MODEL, level="regular")
         assert 'classify_phases' in calls
         assert 'assess_severity' in calls
         assert 'identify_actions' in calls

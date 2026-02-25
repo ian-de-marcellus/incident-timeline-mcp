@@ -300,11 +300,7 @@ def enrich_entities(
 # ── Orchestrator ─────────────────────────────────────────────────────
 
 def enrich_timeline(
-    events: list[dict],
-    text: str,
-    severity: dict,
-    actions: list[dict],
-    entities: dict[str, list[str]],
+    state,
     client,
     model: str,
     level: str,
@@ -312,8 +308,11 @@ def enrich_timeline(
     """
     Run LLM enrichment passes based on enrichment level.
 
-    - 'low': phase classification + severity only
-    - 'regular': all four passes (phases, severity, actions, entities)
+    Args:
+        state: AnalysisState with events, text, severity, actions, entities
+        client: Anthropic client instance
+        model: Model ID to use
+        level: 'low' (phases + severity) or 'regular' (all four passes)
 
     Each pass is independent; failures in one don't affect others.
     Returns dict with keys: phase_updates, severity_update,
@@ -323,7 +322,7 @@ def enrich_timeline(
 
     # Phase classification (low + regular)
     try:
-        phase_updates = enrich_ir_phases(events, client, model)
+        phase_updates = enrich_ir_phases(state.events, client, model)
         if phase_updates:
             results['phase_updates'] = phase_updates
     except Exception as e:
@@ -331,7 +330,7 @@ def enrich_timeline(
 
     # Severity (low + regular)
     try:
-        severity_update = enrich_severity(text, severity, client, model)
+        severity_update = enrich_severity(state.text, state.severity, client, model)
         if severity_update:
             results['severity_update'] = severity_update
     except Exception as e:
@@ -340,7 +339,7 @@ def enrich_timeline(
     # Actions (regular only)
     if level == 'regular':
         try:
-            new_actions = enrich_actions(events, actions, client, model)
+            new_actions = enrich_actions(state.events, state.actions, client, model)
             if new_actions:
                 results['new_actions'] = new_actions
         except Exception as e:
@@ -349,7 +348,7 @@ def enrich_timeline(
     # Entities (regular only)
     if level == 'regular':
         try:
-            entity_updates = enrich_entities(entities, text, client, model)
+            entity_updates = enrich_entities(state.entities, state.text, client, model)
             if entity_updates:
                 results['entity_updates'] = entity_updates
         except Exception as e:

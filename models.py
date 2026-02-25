@@ -7,6 +7,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
+
+
+@dataclass
+class AnalysisState:
+    """Mutable state threaded through the analysis pipeline.
+
+    Bundles the four parallel collections that are created together,
+    enriched together, and packed into the final result together.
+    """
+    events: list[dict]
+    text: str
+    actions: list[dict]
+    entities: dict[str, list[str]]
+    severity: dict[str, Any]
 
 
 @dataclass
