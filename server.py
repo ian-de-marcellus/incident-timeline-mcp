@@ -6,9 +6,12 @@ Exposes extraction tools to Claude via Model Context Protocol.
 
 import asyncio
 import json
+from pathlib import Path
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from pydantic import AnyUrl
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.types import Tool, TextContent, Resource
 
 # Import our extractors
 from extractors import (
@@ -24,6 +27,8 @@ from parsers.slack import parse_slack_export
 
 # Create the server instance
 app = Server("incident-timeline-extractor")
+
+EXAMPLES_DIR = Path(__file__).parent / "examples"
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
@@ -152,6 +157,58 @@ async def list_tools() -> list[Tool]:
         ),
     ]
 
+@app.list_resources()
+async def list_resources() -> list[Resource]:
+    """List sample incident resources available for analysis."""
+    return [
+        Resource(
+            uri="incident://examples/simple",
+            name="Simple Incident (plaintext)",
+            description="Sample payment-service incident with @mentions "
+                        "and simple timestamps (11 events, ~2 min)",
+            mimeType="text/plain",
+        ),
+        Resource(
+            uri="incident://examples/detailed",
+            name="Detailed Incident (plaintext)",
+            description="Sample database performance incident with ISO 8601 "
+                        "timestamps, 5 responders, and IR lifecycle from "
+                        "detection through post-incident review (30 events)",
+            mimeType="text/plain",
+        ),
+        Resource(
+            uri="incident://examples/slack-export",
+            name="Slack Export Incident",
+            description="Sample Slack workspace export with 18 messages "
+                        "including bot messages and @mentions. Returns JSON "
+                        "with 'messages' and 'users' keys for use with "
+                        "parse_slack_export tool",
+            mimeType="application/json",
+        ),
+    ]
+
+
+@app.read_resource()
+async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
+    """Read a sample incident resource by URI."""
+    uri_str = str(uri)
+    if uri_str == "incident://examples/simple":
+        content = (EXAMPLES_DIR / "sample_incident.txt").read_text()
+        return [ReadResourceContents(content=content, mime_type="text/plain")]
+
+    if uri_str == "incident://examples/detailed":
+        content = (EXAMPLES_DIR / "incident_response_example.txt").read_text()
+        return [ReadResourceContents(content=content, mime_type="text/plain")]
+
+    if uri_str == "incident://examples/slack-export":
+        messages = (EXAMPLES_DIR / "slack" / "incident-channel" / "2024-10-15.json").read_text()
+        users = (EXAMPLES_DIR / "slack" / "users.json").read_text()
+        content = json.dumps({"messages": messages, "users": users})
+        return [ReadResourceContents(content=content, mime_type="application/json")]
+
+    raise ValueError(f"Unknown resource: {uri_str}")
+
+
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
@@ -214,7 +271,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             text=json.dumps({"error": str(e)})
         )]
 
-async def main():
+async def main() -> None:
     """Run the MCP server."""
     async with stdio_server() as (read_stream, write_stream):
         await app.run(
