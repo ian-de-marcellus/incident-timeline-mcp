@@ -22,6 +22,18 @@ from patterns import (
 
 logger = logging.getLogger(__name__)
 
+# ── Tuning constants ────────────────────────────────────────────────
+# Context windows (chars) for false-positive filtering
+TIMESTAMP_CONTEXT_CHARS = 20   # chars before timestamp to check for "ratio", etc.
+NEGATION_CONTEXT_CHARS = 40    # chars before severity keyword to check for negation
+
+# Domain validation
+MIN_DOMAIN_LENGTH = 5          # shortest valid domain (e.g. "a.io")
+
+# Severity confidence thresholds (number of matching indicators)
+CONFIDENCE_HIGH_THRESHOLD = 3
+CONFIDENCE_MEDIUM_THRESHOLD = 1
+
 # Sentinel date for time-only timestamps (no date component).
 # Allows time-only values to be sorted among themselves.
 _SENTINEL_DATE = datetime(1970, 1, 1)
@@ -155,8 +167,7 @@ def _is_likely_timestamp(text: str, timestamp: str) -> bool:
     # Get text around the timestamp
     timestamp_index = text.find(timestamp)
     if timestamp_index > 0:
-        # Look at ~20 chars before timestamp
-        context_before = text_lower[max(0, timestamp_index-20):timestamp_index]
+        context_before = text_lower[max(0, timestamp_index - TIMESTAMP_CONTEXT_CHARS):timestamp_index]
 
         for word in false_positive_words:
             if word in context_before:
@@ -346,7 +357,7 @@ def _is_likely_domain(domain: str) -> bool:
     - Known test/placeholder domains
     """
     # Filter very short domains (e.g., "a.b")
-    if len(domain) < 5:
+    if len(domain) < MIN_DOMAIN_LENGTH:
         return False
 
     # Filter common false positives
@@ -376,7 +387,7 @@ def _is_negated_severity(line: str, keyword: str) -> bool:
     # Hyphenated negation prefix (e.g., "non-critical", "pre-degraded")
     if keyword_idx > 0 and line[keyword_idx - 1] == '-':
         return True
-    context_before = line[max(0, keyword_idx - 40):keyword_idx]
+    context_before = line[max(0, keyword_idx - NEGATION_CONTEXT_CHARS):keyword_idx]
     return any(neg in context_before for neg in negation_context)
 
 
@@ -883,9 +894,9 @@ def detect_severity(text: str) -> dict[str, Any]:
         indicators = []
 
     # Determine confidence based on number of indicators
-    if len(indicators) >= 3:
+    if len(indicators) >= CONFIDENCE_HIGH_THRESHOLD:
         confidence = 'high'
-    elif len(indicators) >= 1:
+    elif len(indicators) >= CONFIDENCE_MEDIUM_THRESHOLD:
         confidence = 'medium'
     else:
         confidence = 'low'
