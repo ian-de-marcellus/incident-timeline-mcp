@@ -11,7 +11,7 @@ from extractors import (
     identify_actions, extract_entities, _is_valid_ip, _is_likely_domain,
     _is_likely_service, detect_severity, generate_summary,
     _classify_ir_phase, _classify_timeline_phases, _group_by_phase,
-    map_to_framework,
+    map_to_framework, _analyze_timeline,
 )
 
 
@@ -1635,6 +1635,86 @@ class TestPlatformIntegration:
         timeline = summary['timeline']
         assert len(timeline) == 9
         assert all('timestamp' in e for e in timeline)
+
+
+# ============================================================
+# _analyze_timeline — split pipeline tests
+# ============================================================
+
+class TestAnalyzeTimeline:
+    """Tests for _analyze_timeline with pre-built events."""
+
+    def test_preserves_trusted_actors(self):
+        """Pre-built events with actors should keep those actors in output."""
+        events = [
+            {'time': '14:23', 'text': 'Seeing elevated errors on checkout-service',
+             'timestamp': '1970-01-01T14:23:00', 'actor': 'carol.dev'},
+            {'time': '14:25', 'text': 'Rollback deployed to production',
+             'timestamp': '1970-01-01T14:25:00', 'actor': 'bob.io'},
+        ]
+        text = "carol.dev: Seeing elevated errors on checkout-service\nbob.io: Rollback deployed to production"
+        result = _analyze_timeline(events, text)
+        # Actors from pre-built events are preserved, not re-extracted
+        assert result['timeline'][0]['actor'] == 'carol.dev'
+        assert result['timeline'][1]['actor'] == 'bob.io'
+
+    def test_responder_count_from_events(self):
+        """num_responders should use actors from pre-built events."""
+        events = [
+            {'time': '14:23', 'text': 'Investigating errors',
+             'timestamp': '1970-01-01T14:23:00', 'actor': 'carol.dev'},
+            {'time': '14:25', 'text': 'Deployed rollback',
+             'timestamp': '1970-01-01T14:25:00', 'actor': 'bob.io'},
+        ]
+        text = "Investigating errors\nDeployed rollback"
+        result = _analyze_timeline(events, text)
+        assert result['metrics']['num_responders'] == 2
+
+    def test_actions_extracted_from_text(self):
+        """Actions should still be extracted from the text parameter."""
+        events = [
+            {'time': '14:23', 'text': 'Investigating',
+             'timestamp': '1970-01-01T14:23:00', 'actor': 'sarah'},
+        ]
+        text = "@sarah 14:23: Investigating the checkout-service outage"
+        result = _analyze_timeline(events, text)
+        assert len(result['actions']) > 0
+
+    def test_entities_extracted_from_text(self):
+        """Entities should be extracted from the text parameter."""
+        events = [
+            {'time': '14:23', 'text': 'checkout-service is down',
+             'timestamp': '1970-01-01T14:23:00', 'actor': 'sarah'},
+        ]
+        text = "@sarah 14:23: checkout-service at 10.0.0.1 is down"
+        result = _analyze_timeline(events, text)
+        assert 'checkout-service' in result['entities']['services']
+        assert '10.0.0.1' in result['entities']['ips']
+
+    def test_ir_phases_classified(self):
+        """Events should get ir_phase classifications."""
+        events = [
+            {'time': '14:23', 'text': 'Seeing elevated errors',
+             'timestamp': '1970-01-01T14:23:00', 'actor': 'sarah'},
+            {'time': '14:30', 'text': 'Rolling back deployment',
+             'timestamp': '1970-01-01T14:30:00', 'actor': 'bob'},
+        ]
+        text = "14:23 sarah: Seeing elevated errors\n14:30 bob: Rolling back deployment"
+        result = _analyze_timeline(events, text)
+        assert result['timeline'][0].get('ir_phase')
+        assert result['ir_phases']
+
+    def test_backward_compatible_with_generate_summary(self):
+        """_analyze_timeline should produce same keys as generate_summary."""
+        text = dedent("""
+            @sarah 14:23: Seeing elevated errors on checkout-service
+            @bob 14:25: Rolling back the deployment
+            @sarah 14:30: Metrics returning to normal
+        """).strip()
+        old_result = generate_summary(text)
+        new_events = extract_timeline(text)
+        new_result = _analyze_timeline(new_events, text)
+        assert set(old_result.keys()) == set(new_result.keys())
 
 
 # ============================================================

@@ -19,6 +19,7 @@ from extractors import (
     generate_summary,
     map_to_framework,
 )
+from parsers.slack import parse_slack_export
 
 # Create the server instance
 app = Server("incident-timeline-extractor")
@@ -126,6 +127,26 @@ async def list_tools() -> list[Tool]:
                 "required": ["text"]
             }
         ),
+        Tool(
+            name="parse_slack_export",
+            description="Parse Slack workspace export and extract incident timeline. "
+                       "Converts Slack JSON messages into structured incident analysis "
+                       "with timeline, actions, entities, severity, and IR phase mapping.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "messages_json": {
+                        "type": "string",
+                        "description": "JSON string of Slack messages array (from channel export)"
+                    },
+                    "users_json": {
+                        "type": "string",
+                        "description": "Optional JSON string of users.json for resolving user mentions"
+                    }
+                },
+                "required": ["messages_json"]
+            }
+        ),
     ]
 
 @app.call_tool()
@@ -134,35 +155,45 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     Handle tool calls from Claude.
     Routes to appropriate extractor function based on tool name.
     """
-    # Get the incident text from arguments
-    text = arguments.get("text", "")
-    
-    if not text:
-        return [TextContent(
-            type="text",
-            text=json.dumps({"error": "No text provided"})
-        )]
-    
     # Route to appropriate extractor
     try:
-        if name == "extract_timeline":
-            result = extract_timeline(text)
-        elif name == "identify_actions":
-            result = identify_actions(text)
-        elif name == "extract_entities":
-            result = extract_entities(text)
-        elif name == "detect_severity":
-            result = detect_severity(text)
-        elif name == "generate_summary":
-            result = generate_summary(text)
-        elif name == "map_to_framework":
-            framework = arguments.get("framework", "nist_800_61")
-            result = map_to_framework(text, framework=framework)
+        # Slack parser uses messages_json, not text
+        if name == "parse_slack_export":
+            messages_json = arguments.get("messages_json", "")
+            if not messages_json:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({"error": "No messages_json provided"})
+                )]
+            users_json = arguments.get("users_json")
+            result = parse_slack_export(messages_json, users_json)
         else:
-            return [TextContent(
-                type="text",
-                text=json.dumps({"error": f"Unknown tool: {name}"})
-            )]
+            # All other tools use text
+            text = arguments.get("text", "")
+            if not text:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({"error": "No text provided"})
+                )]
+
+            if name == "extract_timeline":
+                result = extract_timeline(text)
+            elif name == "identify_actions":
+                result = identify_actions(text)
+            elif name == "extract_entities":
+                result = extract_entities(text)
+            elif name == "detect_severity":
+                result = detect_severity(text)
+            elif name == "generate_summary":
+                result = generate_summary(text)
+            elif name == "map_to_framework":
+                framework = arguments.get("framework", "nist_800_61")
+                result = map_to_framework(text, framework=framework)
+            else:
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({"error": f"Unknown tool: {name}"})
+                )]
         
         # Return result as JSON
         return [TextContent(

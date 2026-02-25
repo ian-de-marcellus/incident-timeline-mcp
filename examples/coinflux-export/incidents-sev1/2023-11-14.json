@@ -1,0 +1,137 @@
+[
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "ts": "1700000000.000100",
+    "user": "U_DATADOG",
+    "bot_id": "B_DATADOG",
+    "username": "Datadog",
+    "text": "Monitor Triggered: High Latency",
+    "attachments": [
+      {
+        "fallback": "[Triggered] Monitor High Latency on Service: Wallet-API",
+        "text": "avg(last_5m): 4500ms > 500ms threshold",
+        "title": "[Triggered] High Latency on Service: Wallet-API",
+        "color": "danger",
+        "footer": "Datadog",
+        "ts": 1700000000
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "ts": "1700000060.000200",
+    "user": "U_PAGERDUTY",
+    "bot_id": "B_PAGERDUTY",
+    "username": "PagerDuty",
+    "text": "Incident #892 Triggered",
+    "attachments": [
+      {
+        "fallback": "Incident #892: Wallet-API Latency Critical",
+        "title": "Incident #892: Wallet-API Latency Critical",
+        "title_link": "https://pagerduty.com/incidents/892",
+        "text": "Assigned to: <@U_BOB>",
+        "color": "danger"
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "user": "U_BOB",
+    "text": "I'm looking into this. Seeing 500s on the withdrawal endpoint.",
+    "ts": "1700000120.000300"
+  },
+  {
+    "type": "message",
+    "user": "U_ALICE",
+    "text": "<@U_BOB> Is this a DDoS? NetOps is showing a spike in traffic from IP range `192.168.x.x`.",
+    "ts": "1700000200.000400"
+  },
+  {
+    "type": "message",
+    "user": "U_BOB",
+    "text": "Checking DB locks.",
+    "ts": "1700000300.000500",
+    "thread_ts": "1700000300.000500",
+    "reply_count": 2,
+    "replies": [
+      { "user": "U_CAROL", "ts": "1700000350.000600" },
+      { "user": "U_BOB", "ts": "1700000400.000700" }
+    ]
+  },
+  {
+    "type": "message",
+    "user": "U_CAROL",
+    "text": "Wait, I just merged PR #405 which alters the `transactions` table. It might be locking the table during the migration.",
+    "ts": "1700000350.000600",
+    "thread_ts": "1700000300.000500",
+    "parent_user_id": "U_BOB"
+  },
+  {
+    "type": "message",
+    "user": "U_BOB",
+    "text": "That's it. Postrgres is showing a huge lock queue. We need to kill the migration.",
+    "ts": "1700000400.000700",
+    "thread_ts": "1700000300.000500",
+    "parent_user_id": "U_BOB"
+  },
+  {
+    "type": "message",
+    "user": "U_ALICE",
+    "text": "Acknowledged. Not a security threat. Please revert immediately.",
+    "ts": "1700000450.000800"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_GITHUB",
+    "bot_id": "B_GITHUB",
+    "username": "GitHub",
+    "text": "Pull Request merged",
+    "attachments": [
+      {
+        "color": "#36a64f",
+        "pretext": "Pull Request Merged",
+        "title": "Revert \"Add transaction fees column\" #406",
+        "title_link": "https://github.com/coinflux/api/pull/406",
+        "text": "Merged by <@U_CAROL>"
+      }
+    ],
+    "ts": "1700000500.000900"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_DATADOG",
+    "bot_id": "B_DATADOG",
+    "username": "Datadog",
+    "text": "Monitor Recovered",
+    "attachments": [
+      {
+        "title": "[Recovered] High Latency on Service: Wallet-API",
+        "color": "good",
+        "text": "Value: 35ms",
+        "ts": 1700000600
+      }
+    ],
+    "ts": "1700000600.001000"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_PAGERDUTY",
+    "bot_id": "B_PAGERDUTY",
+    "username": "PagerDuty",
+    "text": "Incident Resolved",
+    "attachments": [
+      {
+        "fallback": "Incident #892: Resolved",
+        "title": "Incident #892: Resolved",
+        "color": "good",
+        "text": "Resolved by <@U_BOB>"
+      }
+    ],
+    "ts": "1700000650.001100"
+  }
+]

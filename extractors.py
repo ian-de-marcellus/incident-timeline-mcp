@@ -829,42 +829,16 @@ def detect_severity(text: str) -> Dict[str, any]:
         'indicators': all_indicators,  # Show everything found
     }
 
-def generate_summary(text: str) -> Dict[str, any]:
-    """
-    Generate comprehensive incident summary using all extractors.
-    
-    Args:
-        text: Raw incident text
-    
-    Returns:
-        Dict containing:
-        - timeline: list of events with timestamps
-        - actions: list of actions taken
-        - entities: dict of services/ips/domains involved
-        - severity: severity assessment
-        - summary_text: human-readable summary
-    
-    Example:
-        >>> text = "@sarah 14:23: payment-service down\\n@mike 14:25: deployed fix"
-        >>> generate_summary(text)
-        {'timeline': [...], 'actions': [...], 'entities': {...}, 
-         'severity': {...}, 'summary_text': '...'}
-    """
-    # Run all extractors
-    timeline = extract_timeline(text)
-    actions = identify_actions(text)
-    entities = extract_entities(text)
-    severity = detect_severity(text)
-
-    # Classify IR phases before computing metrics (metrics uses ir_phase)
-    _classify_timeline_phases(timeline)
-    ir_phases = _group_by_phase(timeline)
-
-    # Compute temporal analysis
-    severity_timeline = _build_severity_timeline(timeline)
-    metrics = _compute_metrics(timeline, actions)
-
-    # Generate human-readable summary text
+def _build_summary_text(
+    timeline: List[Dict],
+    actions: List[Dict],
+    entities: Dict[str, List[str]],
+    severity: Dict,
+    severity_timeline: List[Dict],
+    ir_phases: Dict[str, List[Dict]],
+    metrics: Dict,
+) -> str:
+    """Assemble human-readable summary text from analysis results."""
     summary_parts = []
 
     # Severity with evolution
@@ -925,10 +899,35 @@ def generate_summary(text: str) -> Dict[str, any]:
         for entity_type, count in entity_counts.items():
             summary_parts.append(f"  {entity_type}: {count}")
 
-    summary_text = "\n".join(summary_parts) if summary_parts else "No significant data extracted"
+    return "\n".join(summary_parts) if summary_parts else "No significant data extracted"
+
+
+def _analyze_timeline(events: List[Dict], text: str) -> Dict:
+    """
+    Run full analysis on pre-built timeline events.
+
+    The events list provides the timeline (with actors, timestamps).
+    The text is used for action/entity/severity extraction.
+    Any source (plaintext extractor, Slack parser, etc.) can build
+    events and feed them into this shared pipeline.
+    """
+    actions = identify_actions(text)
+    entities = extract_entities(text)
+    severity = detect_severity(text)
+
+    _classify_timeline_phases(events)
+    ir_phases = _group_by_phase(events)
+
+    severity_timeline = _build_severity_timeline(events)
+    metrics = _compute_metrics(events, actions)
+
+    summary_text = _build_summary_text(
+        events, actions, entities, severity,
+        severity_timeline, ir_phases, metrics,
+    )
 
     return {
-        'timeline': timeline,
+        'timeline': events,
         'actions': actions,
         'entities': entities,
         'severity': severity,
@@ -937,3 +936,28 @@ def generate_summary(text: str) -> Dict[str, any]:
         'metrics': metrics,
         'summary_text': summary_text,
     }
+
+
+def generate_summary(text: str) -> Dict[str, any]:
+    """
+    Generate comprehensive incident summary using all extractors.
+
+    Args:
+        text: Raw incident text
+
+    Returns:
+        Dict containing:
+        - timeline: list of events with timestamps
+        - actions: list of actions taken
+        - entities: dict of services/ips/domains involved
+        - severity: severity assessment
+        - summary_text: human-readable summary
+
+    Example:
+        >>> text = "@sarah 14:23: payment-service down\\n@mike 14:25: deployed fix"
+        >>> generate_summary(text)
+        {'timeline': [...], 'actions': [...], 'entities': {...},
+         'severity': {...}, 'summary_text': '...'}
+    """
+    timeline = extract_timeline(text)
+    return _analyze_timeline(timeline, text)

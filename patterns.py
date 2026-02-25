@@ -165,7 +165,7 @@ IR_PHASE_KEYWORDS = {
     'recovery': [
         'restored', 'back to normal', 'returning to normal',
         'metrics stable', 'all clear', 'all-clear',
-        'stable', 'resolved', 'incident resolved',
+        'stable', 'recovered', 'monitor recovered',
         'recovering', 'recovery',
         're-enabled', 'resumed',
         'back to baseline', 'healthy',
@@ -176,6 +176,7 @@ IR_PHASE_KEYWORDS = {
         'incident report', 'lessons learned',
         'action items', 'scheduled for tomorrow',
         'retrospective', 'write up', 'write-up',
+        'resolved', 'incident resolved',
     ],
 }
 

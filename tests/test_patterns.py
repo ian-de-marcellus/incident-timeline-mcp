@@ -519,16 +519,19 @@ class TestIRPhaseKeywords:
         assert 'restored' in recovery
         assert 'back to normal' in recovery
         assert 'metrics stable' in recovery
-        assert 'incident resolved' in recovery
+        assert 'recovered' in recovery
+        assert 'monitor recovered' in recovery
 
     def test_post_incident_keywords(self):
-        """Post-incident phase should include review and report keywords"""
+        """Post-incident phase should include review, report, and resolution keywords"""
         from patterns import IR_PHASE_KEYWORDS
         post = IR_PHASE_KEYWORDS['post_incident']
         assert 'postmortem' in post
         assert 'post-mortem' in post
         assert 'lessons learned' in post
         assert 'incident report' in post
+        assert 'resolved' in post
+        assert 'incident resolved' in post
 
 
 class TestDiscussionIndicators:
