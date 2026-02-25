@@ -137,7 +137,9 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "messages_json": {
                         "type": "string",
-                        "description": "JSON string of Slack messages array (from channel export)"
+                        "description": "JSON string of Slack messages — either a single array "
+                                       "or a date-keyed object for multi-day incidents "
+                                       '(e.g. {"2024-10-15": [...], "2024-10-16": [...]})'
                     },
                     "users_json": {
                         "type": "string",

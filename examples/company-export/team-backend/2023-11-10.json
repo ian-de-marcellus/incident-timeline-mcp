@@ -1,0 +1,34 @@
+[
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "Found it. We weren't closing the file stream in the `resizer` function.",
+    "ts": "1699600000.000100"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Great catch. PR approved.",
+    "ts": "1699600500.000200"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "username": "Jira",
+    "text": "Deployment #445: SUCCESS",
+    "attachments": [{ "color": "good", "title": "Hotfix v2.0.1 Released", "text": "Memory leak patch." }],
+    "ts": "1699601000.000300"
+  },
+  {
+    "type": "message",
+    "user": "U03",
+    "text": "Nice work everyone. Drinks at 5?",
+    "ts": "1699605000.000400"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Definitely.",
+    "ts": "1699605060.000500"
+  }
+]

@@ -14,6 +14,7 @@ from parsers.slack import (
     parse_slack_messages,
     reconstruct_plaintext,
     _build_events_from_messages,
+    _is_incident_relevant,
     parse_slack_export,
     SKIP_SUBTYPES,
 )
@@ -253,6 +254,43 @@ class TestExtractMessageText:
             }],
         }
         assert _extract_message_text(msg) == 'Hello from blocks'
+
+    def test_file_title_appended(self):
+        msg = {
+            'text': 'Here is the traffic graph.',
+            'files': [{'title': 'Traffic Spike at 23:50 UTC'}],
+        }
+        result = _extract_message_text(msg)
+        assert 'Here is the traffic graph.' in result
+        assert '[Files: Traffic Spike at 23:50 UTC]' in result
+
+    def test_multiple_file_titles(self):
+        msg = {
+            'text': 'Screenshots attached',
+            'files': [
+                {'title': 'CPU Graph'},
+                {'title': 'Error Logs'},
+            ],
+        }
+        result = _extract_message_text(msg)
+        assert '[Files: CPU Graph, Error Logs]' in result
+
+    def test_file_without_title_skipped(self):
+        msg = {
+            'text': 'Here is a file',
+            'files': [{'id': 'F001', 'name': 'image.png'}],
+        }
+        result = _extract_message_text(msg)
+        assert result == 'Here is a file'
+
+    def test_file_only_no_text(self):
+        """Message with only a file upload and no text."""
+        msg = {
+            'text': '',
+            'files': [{'title': 'Screenshot of dashboard'}],
+        }
+        result = _extract_message_text(msg)
+        assert result == '[Files: Screenshot of dashboard]'
 
 
 # ── TestParseSlackMessages ───────────────────────────────────────────
@@ -649,6 +687,51 @@ class TestParseSlackExport:
         result = parse_slack_export(json.dumps(messages))
         assert result['slack_metadata']['threaded_count'] == 1
 
+    def test_multi_day_date_keyed(self):
+        """Date-keyed object merges messages from multiple days."""
+        day1 = [_msg('1729000000.000001', user='U001', text='Day 1 event')]
+        day2 = [_msg('1729086400.000001', user='U001', text='Day 2 event')]
+        multi = {'2024-10-15': day1, '2024-10-16': day2}
+        result = parse_slack_export(json.dumps(multi))
+        assert result['slack_metadata']['message_count'] == 2
+        assert len(result['timeline']) == 2
+
+    def test_multi_day_sorted_by_timestamp(self):
+        """Messages from multiple days should be sorted chronologically."""
+        day1 = [_msg('1729000002.000001', user='U001', text='second')]
+        day2 = [_msg('1729000001.000001', user='U001', text='first')]
+        # Keys out of order, but timestamps determine sort
+        multi = {'2024-10-16': day1, '2024-10-15': day2}
+        result = parse_slack_export(json.dumps(multi))
+        assert result['timeline'][0]['text'] == 'first'
+        assert result['timeline'][1]['text'] == 'second'
+
+    def test_multi_day_metrics_span_days(self):
+        """Duration should span across day boundary."""
+        # Day 1 at 23:00, Day 2 at 01:00 → 2 hour span
+        ts_day1 = '1729029600.000001'  # 2024-10-15T22:00:00Z
+        ts_day2 = '1729036800.000001'  # 2024-10-16T00:00:00Z
+        day1 = [_msg(ts_day1, user='U001', text='Incident started, investigating')]
+        day2 = [_msg(ts_day2, user='U001', text='Rollback complete, back to normal')]
+        multi = {'2024-10-15': day1, '2024-10-16': day2}
+        result = parse_slack_export(json.dumps(multi))
+        assert result['metrics']['duration_seconds'] == 7200
+        assert result['metrics']['duration'] == '2h 0m'
+
+    def test_multi_day_empty_days_ok(self):
+        """Empty day arrays don't break anything."""
+        multi = {
+            '2024-10-15': [_msg('1729000000.000001', user='U001', text='event')],
+            '2024-10-16': [],
+        }
+        result = parse_slack_export(json.dumps(multi))
+        assert result['slack_metadata']['message_count'] == 1
+
+    def test_invalid_input_type_raises(self):
+        """Non-array, non-object JSON should raise ValueError."""
+        with pytest.raises(ValueError):
+            parse_slack_export('"just a string"')
+
 
 # ── TestSlackIntegration ─────────────────────────────────────────────
 
@@ -783,3 +866,182 @@ class TestCoinfluxIntegration:
             if actor:
                 assert not actor.startswith('U_'), f"Raw user ID: {actor}"
                 assert not actor.startswith('B_'), f"Raw bot ID: {actor}"
+
+
+# ── TestNoiseFiltering ──────────────────────────────────────────────
+
+def _relevant_msg(actor, text):
+    """Build a NormalizedMessage for relevance testing."""
+    return NormalizedMessage(
+        timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        actor=actor, text=text,
+        raw=text, source='slack',
+    )
+
+
+class TestNoiseFiltering:
+    """Tests for _is_incident_relevant noise filtering."""
+
+    def test_noise_bot_filtered(self):
+        msg = _relevant_msg('BirthdayBot', 'Happy Birthday to Jim!')
+        assert _is_incident_relevant(msg) is False
+
+    def test_ops_bot_kept(self):
+        msg = _relevant_msg('Datadog', 'Monitor Triggered')
+        assert _is_incident_relevant(msg) is True
+
+    def test_noise_phrase_filtered(self):
+        msg = _relevant_msg('jim.product', 'Anyone for tacos today?')
+        assert _is_incident_relevant(msg) is False
+
+    def test_giphy_command_filtered(self):
+        msg = _relevant_msg('mike.junior', '/giphy fingers crossed')
+        assert _is_incident_relevant(msg) is False
+
+    def test_incident_keyword_kept(self):
+        msg = _relevant_msg('sarah.eng', 'We are down. Get on Zoom.')
+        assert _is_incident_relevant(msg) is True
+
+    def test_default_keeps_ambiguous_message(self):
+        msg = _relevant_msg('sarah.eng', 'Can you look at that?')
+        assert _is_incident_relevant(msg) is True
+
+    def test_noise_bot_case_insensitive(self):
+        """BirthdayBot (mixed case) should still be filtered."""
+        msg = _relevant_msg('BirthdayBot', 'Celebrating today!')
+        assert _is_incident_relevant(msg) is False
+
+    def test_ops_bot_case_insensitive(self):
+        """PagerDuty (mixed case) should still be kept."""
+        msg = _relevant_msg('PagerDuty', 'Incident triggered')
+        assert _is_incident_relevant(msg) is True
+
+    def test_no_actor_message_kept(self):
+        msg = _relevant_msg(None, 'Some system message')
+        assert _is_incident_relevant(msg) is True
+
+    def test_noise_phrase_with_incident_keyword_kept(self):
+        """Noise phrase + incident keyword = keep (escape hatch)."""
+        msg = _relevant_msg('user', 'good morning, service is down')
+        assert _is_incident_relevant(msg) is True
+
+    def test_ops_bot_with_noise_phrase_kept(self):
+        """Ops bot messages kept even if text looks like noise."""
+        msg = _relevant_msg('Datadog', 'good morning check passed')
+        assert _is_incident_relevant(msg) is True
+
+    def test_drinks_at_filtered(self):
+        msg = _relevant_msg('jim.product', 'Drinks at 5?')
+        assert _is_incident_relevant(msg) is False
+
+    def test_technical_message_kept(self):
+        msg = _relevant_msg('sarah.eng', 'Deploying v2.0 of image-processor')
+        assert _is_incident_relevant(msg) is True
+
+
+# ── TestSlackMetadataFiltering ──────────────────────────────────────
+
+class TestSlackMetadataFiltering:
+    """Tests for noise filtering stats in slack_metadata."""
+
+    def test_metadata_has_filtering_fields(self):
+        messages = [
+            _msg('1729000000.000001', text='Happy Birthday!',
+                 subtype='bot_message', username='BirthdayBot'),
+            _msg('1729000001.000001', user='U001', text='Service is down'),
+        ]
+        result = parse_slack_export(json.dumps(messages))
+        meta = result['slack_metadata']
+        assert 'total_messages' in meta
+        assert 'noise_filtered' in meta
+        assert meta['total_messages'] == 2
+        assert meta['noise_filtered'] == 1
+        assert meta['message_count'] == 1
+
+    def test_no_noise_means_zero_filtered(self):
+        messages = [
+            _msg('1729000000.000001', user='U001', text='Investigating issue'),
+        ]
+        result = parse_slack_export(json.dumps(messages))
+        meta = result['slack_metadata']
+        assert meta['noise_filtered'] == 0
+        assert meta['total_messages'] == meta['message_count']
+
+    def test_all_noise_filtered(self):
+        messages = [
+            _msg('1729000000.000001', text='Happy Birthday!',
+                 subtype='bot_message', username='BirthdayBot'),
+            _msg('1729000001.000001', text='/giphy celebrate',
+                 subtype='bot_message', username='Giphy'),
+        ]
+        result = parse_slack_export(json.dumps(messages))
+        meta = result['slack_metadata']
+        assert meta['noise_filtered'] == 2
+        assert meta['message_count'] == 0
+
+
+# ── TestCompanyExportIntegration ────────────────────────────────────
+
+class TestCompanyExportIntegration:
+    """End-to-end tests using the company-export multi-day sample."""
+
+    @pytest.fixture
+    def company_data(self):
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        users_path = os.path.join(
+            base, 'examples', 'company-export', 'users.json')
+        msg_dir = os.path.join(
+            base, 'examples', 'company-export', 'team-backend')
+        if not os.path.exists(users_path):
+            pytest.skip('company-export example data not found')
+        with open(users_path) as f:
+            users_json = f.read()
+        import glob as globmod
+        messages = {}
+        for path in sorted(globmod.glob(os.path.join(msg_dir, '*.json'))):
+            date_key = os.path.basename(path).replace('.json', '')
+            with open(path) as f:
+                messages[date_key] = json.load(f)
+        return json.dumps(messages), users_json
+
+    def test_birthday_bot_filtered(self, company_data):
+        messages_json, users_json = company_data
+        result = parse_slack_export(messages_json, users_json)
+        all_text = ' '.join(e['text'] for e in result['timeline'])
+        assert 'Happy Birthday' not in all_text
+
+    def test_giphy_filtered(self, company_data):
+        messages_json, users_json = company_data
+        result = parse_slack_export(messages_json, users_json)
+        all_text = ' '.join(e['text'] for e in result['timeline'])
+        assert '/giphy' not in all_text
+
+    def test_tacos_filtered(self, company_data):
+        messages_json, users_json = company_data
+        result = parse_slack_export(messages_json, users_json)
+        all_text = ' '.join(e['text'] for e in result['timeline'])
+        assert 'tacos' not in all_text
+
+    def test_datadog_alerts_kept(self, company_data):
+        messages_json, users_json = company_data
+        result = parse_slack_export(messages_json, users_json)
+        actors = [e.get('actor') for e in result['timeline']]
+        assert 'Datadog' in actors
+
+    def test_noise_filtered_count_positive(self, company_data):
+        messages_json, users_json = company_data
+        result = parse_slack_export(messages_json, users_json)
+        assert result['slack_metadata']['noise_filtered'] > 0
+
+    def test_incident_duration_shorter_than_duration(self, company_data):
+        messages_json, users_json = company_data
+        result = parse_slack_export(messages_json, users_json)
+        metrics = result['metrics']
+        if 'incident_duration_seconds' in metrics and 'duration_seconds' in metrics:
+            assert metrics['incident_duration_seconds'] < metrics['duration_seconds']
+
+    def test_jira_deployments_kept(self, company_data):
+        messages_json, users_json = company_data
+        result = parse_slack_export(messages_json, users_json)
+        all_text = ' '.join(e['text'] for e in result['timeline'])
+        assert 'Deployment' in all_text or 'SUCCESS' in all_text

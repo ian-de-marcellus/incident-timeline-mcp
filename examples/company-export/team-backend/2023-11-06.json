@@ -1,0 +1,34 @@
+[
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_BIRTHDAY",
+    "bot_id": "B01",
+    "username": "BirthdayBot",
+    "text": "Happy Birthday to <@U03>! :tada:",
+    "ts": "1699260000.000100"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Deploying v2.0 of image-processor. Fingers crossed.",
+    "ts": "1699270000.000200"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "/giphy fingers crossed",
+    "ts": "1699270005.000300",
+    "attachments": [{ "image_url": "https://giphy.com/..." }]
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_JIRA",
+    "bot_id": "B04",
+    "username": "Jira",
+    "text": "Deployment #442: SUCCESS",
+    "attachments": [{ "color": "good", "title": "v2.0 Released", "text": "No errors reported." }],
+    "ts": "1699270600.000400"
+  }
+]

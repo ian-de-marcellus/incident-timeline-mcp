@@ -1,0 +1,52 @@
+[
+  {
+    "type": "message",
+    "user": "U_ALICE",
+    "text": "Confirming. Validating session tokens now. We need to rotate keys.",
+    "ts": "1704067500.000400", 
+    "thread_ts": "1704067140.000300", 
+    "parent_user_id": "U_GHOST"
+  },
+  {
+    "type": "message",
+    "user": "U_ALICE",
+    "text": "UPDATE: It's bad. They bypassed 2FA.",
+    "ts": "1704068400.000500",
+    "edited": {
+      "user": "U_ALICE",
+      "ts": "1704068500.000000"
+    }
+  },
+  {
+    "type": "message",
+    "user": "U_ALICE",
+    "text": "Here are the affected users:",
+    "ts": "1704069000.000600",
+    "blocks": [
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": "Logs:\n```\nUser: <@U_ALICE> (Admin) - FAILED\nUser: <@U_GHOST> (Legacy) - SUCCESS\n```"
+        }
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_WAF",
+    "bot_id": "B_WAF",
+    "username": "AWS WAF",
+    "text": "Monitor Recovered",
+    "attachments": [
+      {
+        "color": "good",
+        "title": "[RECOVERED] Traffic Normal",
+        "text": "IP Ban list updated. Traffic returned to baseline.",
+        "ts": 1704071700
+      }
+    ],
+    "ts": "1704071700.000700"
+  }
+]

@@ -130,6 +130,7 @@ IR_PHASE_KEYWORDS = {
         'spike detected', 'pagerduty',
         'starting incident', 'started incident',
         'declared', 'sev-1', 'sev-2', 'sev-3',
+        'monitor triggered', 'monitor warning',
     ],
     'analysis': [
         'investigating', 'checking', 'analyzing', 'debugging',
@@ -222,3 +223,30 @@ KNOWN_TLDS = {
     'us', 'uk', 'de', 'fr', 'jp', 'au', 'ca', 'info', 'biz', 'xyz',
     'cloud', 'tech', 'ai', 'ly', 'me', 'tv', 'cc', 'ru', 'cn', 'br',
 }
+
+# Bot names that never produce incident-relevant content.
+# Matched case-insensitively against message actor names.
+NOISE_BOT_NAMES = frozenset([
+    'birthdaybot', 'giphy', 'polly', 'donut',
+    'greetbot', 'welcomebot', 'standuply', 'geekbot',
+    'triviabot', 'coffeebot', 'lunchbot',
+])
+
+# Bot names that always produce incident-relevant content (safelist).
+# Messages from these bots are never filtered, even if text matches noise phrases.
+OPS_BOT_NAMES = frozenset([
+    'datadog', 'pagerduty', 'opsgenie', 'victorops',
+    'jira', 'github', 'gitlab', 'sentry', 'statuspage',
+    'aws', 'cloudwatch', 'newrelic', 'grafana', 'prometheus',
+    'circleci', 'jenkins', 'argocd',
+])
+
+# Phrases indicating non-incident content.
+# Matched case-insensitively via substring against message text.
+NOISE_PHRASES = [
+    'happy birthday', '/giphy', 'lunch?', 'tacos',
+    'coffee run', 'coffee?', 'congrats', 'congratulations',
+    'drinks at', 'drinks?', 'happy hour',
+    'good morning', 'good night',
+    'out of office', 'ooo today', 'wfh today',
+]

@@ -11,7 +11,7 @@ from extractors import (
     identify_actions, extract_entities, _is_valid_ip, _is_likely_domain,
     _is_likely_service, detect_severity, generate_summary,
     _classify_ir_phase, _classify_timeline_phases, _group_by_phase,
-    map_to_framework, _analyze_timeline,
+    map_to_framework, _analyze_timeline, _find_incident_boundaries,
 )
 
 
@@ -2100,3 +2100,106 @@ class TestIRPhaseIntegration:
         assert 'ir_phases' in summary
         assert len(summary['ir_phases']) >= 3
         assert 'IR Phases' in summary['summary_text']
+
+
+class TestIncidentAwareDuration:
+    """Tests for incident_duration in _compute_metrics."""
+
+    def test_incident_duration_severity_to_recovery(self):
+        """Should compute incident_duration from severity keyword to recovery."""
+        timeline = [
+            {'text': 'good morning team', 'timestamp': '2024-01-01T09:00:00+00:00'},
+            {'text': 'service is down', 'timestamp': '2024-01-01T14:23:00+00:00'},
+            {'text': 'investigating the issue', 'timestamp': '2024-01-01T14:25:00+00:00'},
+            {'text': 'metrics stable, back to normal', 'timestamp': '2024-01-01T14:39:00+00:00'},
+            {'text': 'drinks later?', 'timestamp': '2024-01-01T17:00:00+00:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['incident_duration'] == '16m'
+        assert metrics['incident_duration_seconds'] == 960
+
+    def test_incident_duration_coexists_with_duration(self):
+        """Both duration and incident_duration should be present."""
+        timeline = [
+            {'text': 'normal chat', 'timestamp': '2024-01-01T09:00:00+00:00'},
+            {'text': 'alert fired on service', 'timestamp': '2024-01-01T14:23:00+00:00'},
+            {'text': 'back to normal', 'timestamp': '2024-01-01T14:39:00+00:00'},
+            {'text': 'end of day chat', 'timestamp': '2024-01-01T17:00:00+00:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert 'duration' in metrics
+        assert 'incident_duration' in metrics
+        # Overall duration > incident duration
+        assert metrics['duration_seconds'] > metrics['incident_duration_seconds']
+
+    def test_no_incident_duration_without_keywords(self):
+        """Should not add incident_duration if no keyword boundaries found."""
+        timeline = [
+            {'text': 'some chat', 'timestamp': '2024-01-01T09:00:00+00:00'},
+            {'text': 'more chat', 'timestamp': '2024-01-01T17:00:00+00:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert 'incident_duration' not in metrics
+
+    def test_no_incident_duration_without_end_signal(self):
+        """Should not add incident_duration if no recovery/post_incident keyword."""
+        timeline = [
+            {'text': 'service is down', 'timestamp': '2024-01-01T14:23:00+00:00'},
+            {'text': 'investigating', 'timestamp': '2024-01-01T14:25:00+00:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert 'incident_duration' not in metrics
+
+    def test_incident_duration_detection_keyword_start(self):
+        """Detection keywords (not just severity) can mark incident start."""
+        timeline = [
+            {'text': 'normal chat', 'timestamp': '2024-01-01T09:00:00+00:00'},
+            {'text': 'alert fired on service', 'timestamp': '2024-01-01T14:23:00+00:00'},
+            {'text': 'back to normal', 'timestamp': '2024-01-01T14:39:00+00:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['incident_duration'] == '16m'
+
+    def test_incident_duration_hours_format(self):
+        """Duration >= 60 minutes should show hours format."""
+        timeline = [
+            {'text': 'service is down', 'timestamp': '2024-01-01T14:00:00+00:00'},
+            {'text': 'finally stable', 'timestamp': '2024-01-01T16:30:00+00:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['incident_duration'] == '2h 30m'
+
+    def test_find_incident_boundaries_basic(self):
+        """Should find start and end boundaries."""
+        timeline = [
+            {'text': 'hello', 'timestamp': '2024-01-01T09:00:00+00:00'},
+            {'text': 'critical alert', 'timestamp': '2024-01-01T10:00:00+00:00'},
+            {'text': 'all clear', 'timestamp': '2024-01-01T11:00:00+00:00'},
+        ]
+        start, end = _find_incident_boundaries(timeline)
+        assert start is not None
+        assert end is not None
+
+    def test_find_incident_boundaries_none_without_keywords(self):
+        """Should return None, None when no keywords match."""
+        timeline = [
+            {'text': 'hello', 'timestamp': '2024-01-01T09:00:00+00:00'},
+            {'text': 'goodbye', 'timestamp': '2024-01-01T10:00:00+00:00'},
+        ]
+        start, end = _find_incident_boundaries(timeline)
+        assert start is None
+        assert end is None
+
+    def test_incident_duration_in_summary_text(self):
+        """Incident duration should appear in summary_text."""
+        timeline = [
+            {'text': 'normal chat', 'timestamp': '2024-01-01T09:00:00+00:00'},
+            {'text': 'service is down', 'timestamp': '2024-01-01T14:23:00+00:00'},
+            {'text': 'back to normal', 'timestamp': '2024-01-01T14:39:00+00:00'},
+            {'text': 'end of day', 'timestamp': '2024-01-01T17:00:00+00:00'},
+        ]
+        result = _analyze_timeline(
+            timeline,
+            'service is down\ninvestigating\nback to normal',
+        )
+        assert 'Incident duration: 16m' in result['summary_text']

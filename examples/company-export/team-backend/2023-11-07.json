@@ -1,0 +1,23 @@
+[
+  {
+    "type": "message",
+    "user": "U03",
+    "text": "Anyone for tacos today?",
+    "ts": "1699350000.000100",
+    "reactions": [
+      { "name": "taco", "users": ["U01", "U02"], "count": 2 }
+    ]
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "I'm in.",
+    "ts": "1699350060.000200"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "<@U03> did you see that email from Legal?",
+    "ts": "1699360000.000300"
+  }
+]

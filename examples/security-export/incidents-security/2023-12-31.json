@@ -1,0 +1,45 @@
+[
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "ts": "1704066600.000100", 
+    "user": "U_WAF",
+    "bot_id": "B_WAF",
+    "username": "AWS WAF",
+    "text": "Rate Limit Exceeded",
+    "attachments": [
+      {
+        "color": "danger",
+        "title": "[CRITICAL] Rate Limit Exceeded: /auth/login",
+        "text": "Source IPs: 15,000 unique IPs. Traffic: 40k req/sec.",
+        "ts": 1704066600
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "user": "U_ALICE",
+    "text": "Here is the traffic graph.",
+    "ts": "1704066900.000200",
+    "subtype": "file_share",
+    "files": [
+      {
+        "id": "F12345",
+        "name": "traffic_spike.png",
+        "filetype": "png",
+        "title": "Traffic Spike at 23:50 UTC"
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "user": "U_GHOST",
+    "text": "I'm seeing successful logins from Nigeria and Russia on the `admin` accounts.",
+    "ts": "1704067140.000300", 
+    "thread_ts": "1704067140.000300", 
+    "reply_count": 2,
+    "replies": [
+      { "user": "U_ALICE", "ts": "1704067500.000400" } 
+    ]
+  }
+]

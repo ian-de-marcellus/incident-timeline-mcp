@@ -552,5 +552,47 @@ class TestDiscussionIndicators:
             assert ind == ind.lower(), f"'{ind}' is not lowercase"
 
 
+class TestNoiseFilterPatterns:
+    """Tests for noise filtering pattern constants."""
+
+    def test_noise_bots_all_lowercase(self):
+        from patterns import NOISE_BOT_NAMES
+        for name in NOISE_BOT_NAMES:
+            assert name == name.lower(), f"'{name}' is not lowercase"
+
+    def test_ops_bots_all_lowercase(self):
+        from patterns import OPS_BOT_NAMES
+        for name in OPS_BOT_NAMES:
+            assert name == name.lower(), f"'{name}' is not lowercase"
+
+    def test_noise_phrases_all_lowercase(self):
+        from patterns import NOISE_PHRASES
+        for phrase in NOISE_PHRASES:
+            assert phrase == phrase.lower(), f"'{phrase}' is not lowercase"
+
+    def test_noise_and_ops_bots_no_overlap(self):
+        from patterns import NOISE_BOT_NAMES, OPS_BOT_NAMES
+        overlap = NOISE_BOT_NAMES & OPS_BOT_NAMES
+        assert not overlap, f"Overlap between noise and ops bots: {overlap}"
+
+    def test_known_noise_bots_present(self):
+        from patterns import NOISE_BOT_NAMES
+        assert 'birthdaybot' in NOISE_BOT_NAMES
+        assert 'giphy' in NOISE_BOT_NAMES
+
+    def test_known_ops_bots_present(self):
+        from patterns import OPS_BOT_NAMES
+        assert 'datadog' in OPS_BOT_NAMES
+        assert 'pagerduty' in OPS_BOT_NAMES
+        assert 'jira' in OPS_BOT_NAMES
+
+    def test_detection_monitoring_keywords(self):
+        """Detection phase should include monitoring alert patterns."""
+        from patterns import IR_PHASE_KEYWORDS
+        detection = IR_PHASE_KEYWORDS['detection']
+        assert 'monitor triggered' in detection
+        assert 'monitor warning' in detection
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

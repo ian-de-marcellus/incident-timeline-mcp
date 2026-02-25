@@ -426,6 +426,49 @@ def _build_severity_timeline(events: List[Dict]) -> List[Dict]:
     return severity_timeline
 
 
+def _find_incident_boundaries(
+    timeline: List[Dict],
+) -> tuple:
+    """
+    Find incident start and end timestamps using keyword signals.
+
+    Start: first event matching severity keywords or detection phase keywords.
+    End: last event matching recovery or post_incident phase keywords.
+
+    Returns (start_dt, end_dt) or (None, None) if no keyword boundaries found.
+    """
+    start_dt = None
+    end_dt = None
+
+    # Build flat keyword sets for efficient lookup
+    start_keywords = []
+    for keywords in SEVERITY_KEYWORDS.values():
+        start_keywords.extend(keywords)
+    start_keywords.extend(IR_PHASE_KEYWORDS.get('detection', []))
+
+    end_keywords = []
+    end_keywords.extend(IR_PHASE_KEYWORDS.get('recovery', []))
+    end_keywords.extend(IR_PHASE_KEYWORDS.get('post_incident', []))
+
+    for event in timeline:
+        if not event.get('timestamp'):
+            continue
+        text_lower = event['text'].lower()
+
+        if start_dt is None:
+            for kw in start_keywords:
+                if kw in text_lower:
+                    start_dt = datetime.fromisoformat(event['timestamp'])
+                    break
+
+        for kw in end_keywords:
+            if kw in text_lower:
+                end_dt = datetime.fromisoformat(event['timestamp'])
+                break
+
+    return start_dt, end_dt
+
+
 def _compute_metrics(timeline: List[Dict], actions: List[Dict]) -> Dict:
     """
     Compute incident metrics from sorted timeline and actions.
@@ -452,6 +495,19 @@ def _compute_metrics(timeline: List[Dict], actions: List[Dict]) -> Dict:
             metrics['duration'] = f"{minutes // 60}h {minutes % 60}m"
         else:
             metrics['duration'] = f"{minutes}m"
+
+    # Incident-aware duration: keyword-based boundaries
+    incident_start, incident_end = _find_incident_boundaries(timeline)
+    if incident_start and incident_end and incident_end > incident_start:
+        inc_delta = incident_end - incident_start
+        metrics['incident_duration_seconds'] = int(inc_delta.total_seconds())
+        inc_minutes = int(inc_delta.total_seconds()) // 60
+        if inc_minutes >= 60:
+            metrics['incident_duration'] = (
+                f"{inc_minutes // 60}h {inc_minutes % 60}m"
+            )
+        else:
+            metrics['incident_duration'] = f"{inc_minutes}m"
 
     # TTR heuristic: find last "resolved" action and compute time from start
     if parsed:
@@ -860,6 +916,10 @@ def _build_summary_text(
     # Metrics
     if metrics.get('duration'):
         summary_parts.append(f"Duration: {metrics['duration']}")
+    if metrics.get('incident_duration'):
+        summary_parts.append(
+            f"Incident duration: {metrics['incident_duration']}"
+        )
     if metrics.get('time_to_detect'):
         summary_parts.append(f"Time to detect: {metrics['time_to_detect']}")
     if metrics.get('time_to_contain'):

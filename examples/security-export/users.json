@@ -1,0 +1,21 @@
+[
+  {
+    "id": "U_ALICE",
+    "name": "alice.sec",
+    "real_name": "Alice Security",
+    "is_bot": false
+  },
+  {
+    "id": "U_GHOST",
+    "name": "dave.legacy",
+    "real_name": "Dave (Deleted)",
+    "deleted": true, 
+    "profile": { "real_name": "Dave Legacy" } 
+  },
+  {
+    "id": "B_WAF",
+    "name": "aws-waf",
+    "real_name": "AWS WAF",
+    "is_bot": true
+  }
+]

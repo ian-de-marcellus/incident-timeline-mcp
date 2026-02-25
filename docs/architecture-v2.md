@@ -494,13 +494,30 @@ increment.
   story in framework terms
 
 ### Phase 4: Slack Export Parsing
-- Implement `parsers/slack.py`
-- Handle user ID resolution, Slack formatting cleanup, epoch timestamps
+- Implement `parsers/slack.py` with full Slack mrkdwn cleanup
+- Handle user ID resolution, bot message attribution, epoch timestamps
+- Extract text from attachments, blocks (rich_text), and file titles
+- Split `generate_summary()` into `_analyze_timeline()` shared core —
+  Slack path builds events directly (preserving trusted actors) while
+  plaintext path continues through `extract_timeline()`
 - Add `parse_slack_export` MCP tool
-- Create sample Slack export in `examples/` for testing
-- **Result:** tool works on real Slack data, not just plaintext
+- Create sample Slack exports in `examples/` for testing
+- **Result:** tool works on real Slack data with correct actor attribution
 
-### Phase 5: LLM Enrichment
+### Phase 5: Signal Filtering + Incident-Aware Metrics
+- Multi-day Slack export support (date-keyed JSON objects)
+- Noise filtering: `_is_incident_relevant()` removes noise bots
+  (BirthdayBot, Giphy) and casual phrases while preserving ops bot
+  messages (Datadog, PagerDuty, Jira)
+- Incident-aware duration: `_find_incident_boundaries()` detects
+  start (severity/detection keywords) and end (recovery/post_incident
+  keywords), reports `incident_duration` alongside raw `duration`
+- Phase keyword tuning: `monitor triggered`/`monitor warning` added
+  to detection; `resolved` moved to post_incident
+- **Result:** clean timelines from noisy multi-day exports, accurate
+  incident duration metrics
+
+### Phase 6: LLM Enrichment
 - Implement `llm/enrichment.py` with Haiku integration
 - Add LLM fallback for: phase classification, severity assessment, entity
   disambiguation, missed action extraction
@@ -508,10 +525,9 @@ increment.
 - Add confidence indicators to output (regex vs. LLM sourced)
 - **Result:** significantly improved accuracy on ambiguous inputs
 
-### Phase 6: MCP Resources + Polish
+### Phase 7: MCP Resources + Polish
 - Add MCP resources for sample incidents
 - Update README with v2 capabilities and examples
-- Create sample Slack export data
 - End-to-end testing with realistic inputs
 - **Result:** complete, demo-ready v2
 

@@ -17,6 +17,10 @@ from typing import Dict, List, Optional
 
 from models import NormalizedMessage
 from extractors import _analyze_timeline
+from patterns import (
+    NOISE_BOT_NAMES, OPS_BOT_NAMES, NOISE_PHRASES,
+    ACTION_KEYWORDS, SEVERITY_KEYWORDS, IR_PHASE_KEYWORDS,
+)
 
 
 # Message subtypes with no IR signal — channel lifecycle/metadata events
@@ -162,6 +166,14 @@ def _extract_message_text(msg: dict) -> str:
             parts.append(' — '.join(att_parts) if len(att_parts) > 1
                          else att_parts[0])
 
+    # Extract file titles (screenshots, logs, etc.)
+    file_titles = [
+        f['title'] for f in msg.get('files', [])
+        if f.get('title')
+    ]
+    if file_titles:
+        parts.append('[Files: ' + ', '.join(file_titles) + ']')
+
     # If still empty, try blocks (rich_text)
     if not parts:
         for block in msg.get('blocks', []):
@@ -296,6 +308,56 @@ def _build_events_from_messages(messages: List[NormalizedMessage]) -> List[dict]
     return events
 
 
+def _has_incident_keyword(text_lower: str) -> bool:
+    """Check if text contains any incident-related keyword."""
+    for keywords in ACTION_KEYWORDS.values():
+        for kw in keywords:
+            if kw in text_lower:
+                return True
+    for keywords in SEVERITY_KEYWORDS.values():
+        for kw in keywords:
+            if kw in text_lower:
+                return True
+    for keywords in IR_PHASE_KEYWORDS.values():
+        for kw in keywords:
+            if kw in text_lower:
+                return True
+    return False
+
+
+def _is_incident_relevant(msg: NormalizedMessage) -> bool:
+    """
+    Determine if a NormalizedMessage is relevant to incident analysis.
+
+    Decision order:
+    1. Ops bot messages -> always keep
+    2. Noise bot messages -> always filter
+    3. Messages matching noise phrases -> filter (unless also has incident keyword)
+    4. Default -> keep (permissive)
+    """
+    actor_lower = (msg.actor or '').lower()
+
+    # 1. Ops bots: always relevant
+    if actor_lower in OPS_BOT_NAMES:
+        return True
+
+    # 2. Noise bots: never relevant
+    if actor_lower in NOISE_BOT_NAMES:
+        return False
+
+    text_lower = msg.text.lower()
+
+    # 3. Noise phrases: filter unless also has incident keyword
+    for phrase in NOISE_PHRASES:
+        if phrase in text_lower:
+            if _has_incident_keyword(text_lower):
+                return True
+            return False
+
+    # 4. Default: keep
+    return True
+
+
 def parse_slack_export(
     messages_json: str,
     users_json: Optional[str] = None,
@@ -304,13 +366,27 @@ def parse_slack_export(
     Public entry point: parse Slack export JSON and run full analysis.
 
     Args:
-        messages_json: JSON string of Slack messages array
+        messages_json: JSON string — either:
+            - A single array of messages (one day)
+            - An object keyed by date with arrays as values (multi-day),
+              e.g. {"2024-10-15": [...], "2024-10-16": [...]}
         users_json: Optional JSON string of users.json array
 
     Returns:
         Full incident summary dict with additional slack_metadata key.
     """
-    messages_data = json.loads(messages_json)
+    raw = json.loads(messages_json)
+
+    # Accept either a flat array or a date-keyed object
+    if isinstance(raw, list):
+        messages_data = raw
+    elif isinstance(raw, dict):
+        messages_data = []
+        for key in sorted(raw.keys()):
+            messages_data.extend(raw[key])
+    else:
+        raise ValueError(
+            "messages_json must be a JSON array or date-keyed object")
 
     if users_json:
         users_data = json.loads(users_json)
@@ -320,6 +396,11 @@ def parse_slack_export(
 
     normalized, skipped = parse_slack_messages(messages_data, user_map)
 
+    # Noise filtering — remove irrelevant messages before analysis
+    total_before_filter = len(normalized)
+    normalized = [m for m in normalized if _is_incident_relevant(m)]
+    noise_filtered = total_before_filter - len(normalized)
+
     # Build events directly from NormalizedMessages (preserves actors)
     # and plaintext for action/entity/severity extraction
     events = _build_events_from_messages(normalized)
@@ -327,11 +408,13 @@ def parse_slack_export(
 
     result = _analyze_timeline(events, plaintext)
 
-    # Count threads and unique users
+    # Count threads and unique users (from filtered set)
     threaded = sum(1 for m in normalized if m.metadata.get('thread_ts'))
     actors = set(m.actor for m in normalized if m.actor)
 
     result['slack_metadata'] = {
+        'total_messages': total_before_filter,
+        'noise_filtered': noise_filtered,
         'message_count': len(normalized),
         'user_count': len(actors),
         'skipped_count': skipped,
