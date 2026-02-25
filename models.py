@@ -7,14 +7,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional
 
 
 @dataclass
 class NormalizedMessage:
     """A single message from any source, normalized to a common format."""
-    timestamp: Optional[datetime]
-    actor: Optional[str]
+    timestamp: datetime | None
+    actor: str | None
     text: str
     raw: str
     source: str  # "slack" | "plaintext"
@@ -47,23 +46,23 @@ class SeverityChange:
 @dataclass
 class TimelineEvent:
     """An extracted event with all enrichments applied."""
-    timestamp: Optional[datetime]
-    actor: Optional[str]
+    timestamp: datetime | None
+    actor: str | None
     text: str
     actions: list[Action] = field(default_factory=list)
     entities: dict[str, list[str]] = field(default_factory=dict)
     severity_indicators: list[str] = field(default_factory=list)
-    ir_phase: Optional[str] = None
-    phase_confidence: Optional[str] = None  # "regex" | "llm"
+    ir_phase: str | None = None
+    phase_confidence: str | None = None  # "regex" | "llm"
 
 
 @dataclass
 class IncidentMetrics:
     """Computed metrics for an incident."""
-    duration: Optional[timedelta] = None
-    time_to_detect: Optional[timedelta] = None
-    time_to_contain: Optional[timedelta] = None
-    time_to_resolve: Optional[timedelta] = None
+    duration: timedelta | None = None
+    time_to_detect: timedelta | None = None
+    time_to_contain: timedelta | None = None
+    time_to_resolve: timedelta | None = None
     num_responders: int = 0
     num_events: int = 0
 
@@ -74,7 +73,7 @@ class IncidentReport:
     timeline: list[TimelineEvent] = field(default_factory=list)
     ir_phases: dict[str, list[TimelineEvent]] = field(default_factory=dict)
     severity_timeline: list[SeverityChange] = field(default_factory=list)
-    overall_severity: Optional[SeverityAssessment] = None
+    overall_severity: SeverityAssessment | None = None
     entities: dict[str, list[str]] = field(default_factory=dict)
-    metrics: Optional[IncidentMetrics] = None
+    metrics: IncidentMetrics | None = None
     summary_text: str = ""

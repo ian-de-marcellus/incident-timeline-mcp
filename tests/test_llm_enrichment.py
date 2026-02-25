@@ -5,7 +5,6 @@ All enrichment functions are pure — tests pass a mock client directly.
 No module globals, no monkeypatching, no conftest fixtures needed.
 """
 
-import pytest
 from unittest.mock import patch, MagicMock
 
 from llm.enrichment import (
@@ -244,9 +243,8 @@ class TestEnrichIRPhases:
                     ]
                 }
                 return _make_response(_make_tool_use_block("classify_phases", tool_input))
-            else:
-                tool_input = {"classifications": []}
-                return _make_response(_make_tool_use_block("classify_phases", tool_input))
+            tool_input = {"classifications": []}
+            return _make_response(_make_tool_use_block("classify_phases", tool_input))
 
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = side_effect
@@ -496,7 +494,7 @@ class TestEnrichTimeline:
         response = _make_response(_make_text_block("no result"))
         mock_client = self._make_mock_client(response)
 
-        result = enrich_timeline(
+        enrich_timeline(
             events, "text", severity, actions, entities,
             client=mock_client, model=MODEL, level="regular",
         )
@@ -518,7 +516,7 @@ class TestEnrichTimeline:
             tool_name = kwargs.get('tool_choice', {}).get('name', '')
             if tool_name == 'classify_phases':
                 raise Exception("Phase API down")
-            elif tool_name == 'assess_severity':
+            if tool_name == 'assess_severity':
                 tool_input = {
                     "level": "high", "confidence": "medium",
                     "indicators": ["degraded"], "reasoning": "test",
@@ -599,7 +597,7 @@ class TestPipelineIntegration:
         events = [
             {'text': 'Something happened', 'time': '14:00', 'timestamp': '2024-01-01T14:00:00Z'},
         ]
-        result = _analyze_timeline(events, "Something happened", client=mock_client, level='low')
+        _analyze_timeline(events, "Something happened", client=mock_client, level='low')
         # Client was used
         assert mock_client.messages.create.called
 

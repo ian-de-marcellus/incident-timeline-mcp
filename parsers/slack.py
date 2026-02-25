@@ -12,8 +12,7 @@ Slack export format reference:
 
 import json
 import re
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import datetime, UTC
 
 from models import NormalizedMessage
 from extractors import _analyze_timeline
@@ -35,7 +34,7 @@ SKIP_SUBTYPES = frozenset([
 ])
 
 
-def parse_users(users_data: List[dict]) -> Dict[str, str]:
+def parse_users(users_data: list[dict]) -> dict[str, str]:
     """
     Build a user_id -> display_name mapping from users.json data.
 
@@ -71,7 +70,7 @@ def parse_users(users_data: List[dict]) -> Dict[str, str]:
     return user_map
 
 
-def clean_slack_text(text: str, user_map: Dict[str, str]) -> str:
+def clean_slack_text(text: str, user_map: dict[str, str]) -> str:
     """
     Clean Slack mrkdwn formatting into plain text.
 
@@ -132,9 +131,8 @@ def clean_slack_text(text: str, user_map: Dict[str, str]) -> str:
     # HTML entity decoding (last — earlier steps may produce encoded chars)
     text = text.replace('&amp;', '&')
     text = text.replace('&lt;', '<')
-    text = text.replace('&gt;', '>')
+    return text.replace('&gt;', '>')
 
-    return text
 
 
 def _extract_message_text(msg: dict) -> str:
@@ -187,10 +185,10 @@ def _extract_message_text(msg: dict) -> str:
 
 
 def parse_slack_messages(
-    messages_data: List[dict],
-    user_map: Dict[str, str],
-    skip_subtypes: Optional[frozenset] = None,
-) -> tuple[List[NormalizedMessage], int]:
+    messages_data: list[dict],
+    user_map: dict[str, str],
+    skip_subtypes: frozenset | None = None,
+) -> tuple[list[NormalizedMessage], int]:
     """
     Parse Slack message JSON into NormalizedMessage objects.
 
@@ -215,7 +213,7 @@ def parse_slack_messages(
         # Parse timestamp
         ts_str = msg.get('ts', '')
         try:
-            timestamp = datetime.fromtimestamp(float(ts_str), tz=timezone.utc)
+            timestamp = datetime.fromtimestamp(float(ts_str), tz=UTC)
         except (ValueError, TypeError, OSError):
             timestamp = None
 
@@ -251,12 +249,12 @@ def parse_slack_messages(
         ))
 
     # Sort by timestamp (None timestamps go last)
-    messages.sort(key=lambda m: m.timestamp or datetime.max.replace(tzinfo=timezone.utc))
+    messages.sort(key=lambda m: m.timestamp or datetime.max.replace(tzinfo=UTC))
 
     return messages, skipped
 
 
-def reconstruct_plaintext(messages: List[NormalizedMessage]) -> str:
+def reconstruct_plaintext(messages: list[NormalizedMessage]) -> str:
     """
     Convert NormalizedMessage list into plaintext for the extraction pipeline.
 
@@ -268,10 +266,7 @@ def reconstruct_plaintext(messages: List[NormalizedMessage]) -> str:
         if not text:
             continue
 
-        if msg.timestamp:
-            ts = msg.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
-        else:
-            ts = ''
+        ts = msg.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ') if msg.timestamp else ''
 
         if msg.actor and ts:
             lines.append(f"{ts} {msg.actor}: {text}")
@@ -285,7 +280,7 @@ def reconstruct_plaintext(messages: List[NormalizedMessage]) -> str:
     return '\n'.join(lines)
 
 
-def _build_events_from_messages(messages: List[NormalizedMessage]) -> List[dict]:
+def _build_events_from_messages(messages: list[NormalizedMessage]) -> list[dict]:
     """
     Convert NormalizedMessages into timeline event dicts.
 
@@ -350,9 +345,7 @@ def _is_incident_relevant(msg: NormalizedMessage) -> bool:
     # 3. Noise phrases: filter unless also has incident keyword
     for phrase in NOISE_PHRASES:
         if phrase in text_lower:
-            if _has_incident_keyword(text_lower):
-                return True
-            return False
+            return bool(_has_incident_keyword(text_lower))
 
     # 4. Default: keep
     return True
@@ -360,7 +353,7 @@ def _is_incident_relevant(msg: NormalizedMessage) -> bool:
 
 def parse_slack_export(
     messages_json: str,
-    users_json: Optional[str] = None,
+    users_json: str | None = None,
     client=None,
     level: str = 'none',
 ) -> dict:
@@ -414,7 +407,7 @@ def parse_slack_export(
 
     # Count threads and unique users (from filtered set)
     threaded = sum(1 for m in normalized if m.metadata.get('thread_ts'))
-    actors = set(m.actor for m in normalized if m.actor)
+    actors = {m.actor for m in normalized if m.actor}
 
     result['slack_metadata'] = {
         'total_messages': total_before_filter,

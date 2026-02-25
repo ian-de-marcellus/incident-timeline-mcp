@@ -9,7 +9,6 @@ constructing the client and reading settings.
 """
 
 import logging
-from typing import Dict, List, Optional
 
 from .prompts import (
     IR_PHASE_PROMPT, IR_PHASE_TOOL,
@@ -21,7 +20,7 @@ from .prompts import (
 logger = logging.getLogger(__name__)
 
 try:
-    import anthropic
+    import anthropic  # noqa: F401 — side-effect import for availability detection
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
@@ -43,7 +42,7 @@ def _call_haiku(
     user_content: str,
     tool_schema: dict,
     tool_name: str,
-) -> Optional[dict]:
+) -> dict | None:
     """
     Single API call to Claude Haiku with forced tool use.
 
@@ -76,10 +75,10 @@ def _call_haiku(
 # ── Enrichment passes ────────────────────────────────────────────────
 
 def enrich_ir_phases(
-    events: List[Dict],
+    events: list[dict],
     client,
     model: str,
-) -> Optional[List[Dict]]:
+) -> list[dict] | None:
     """
     Enrich IR phase classifications for low-confidence events.
 
@@ -146,10 +145,10 @@ def enrich_ir_phases(
 
 def enrich_severity(
     text: str,
-    current_severity: Dict,
+    current_severity: dict,
     client,
     model: str,
-) -> Optional[Dict]:
+) -> dict | None:
     """
     Enrich severity assessment when regex confidence is low or level is unknown.
 
@@ -186,11 +185,11 @@ def enrich_severity(
 
 
 def enrich_actions(
-    events: List[Dict],
-    existing_actions: List[Dict],
+    events: list[dict],
+    existing_actions: list[dict],
     client,
     model: str,
-) -> Optional[List[Dict]]:
+) -> list[dict] | None:
     """
     Find actions in events where regex found none.
 
@@ -217,7 +216,7 @@ def enrich_actions(
 
         lines = []
         index_map = {}  # line_number → event text
-        for line_num, (event_idx, event) in enumerate(batch, start=1):
+        for line_num, (_event_idx, event) in enumerate(batch, start=1):
             text = event.get('text', '')
             time = event.get('time', '')
             lines.append(f"Line {line_num} [{time}]: {text}")
@@ -252,11 +251,11 @@ def enrich_actions(
 
 
 def enrich_entities(
-    entities: Dict[str, List[str]],
+    entities: dict[str, list[str]],
     text: str,
     client,
     model: str,
-) -> Optional[Dict]:
+) -> dict | None:
     """
     Disambiguate entities that might be misclassified.
 
@@ -301,15 +300,15 @@ def enrich_entities(
 # ── Orchestrator ─────────────────────────────────────────────────────
 
 def enrich_timeline(
-    events: List[Dict],
+    events: list[dict],
     text: str,
-    severity: Dict,
-    actions: List[Dict],
-    entities: Dict[str, List[str]],
+    severity: dict,
+    actions: list[dict],
+    entities: dict[str, list[str]],
     client,
     model: str,
     level: str,
-) -> Dict:
+) -> dict:
     """
     Run LLM enrichment passes based on enrichment level.
 

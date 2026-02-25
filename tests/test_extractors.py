@@ -4,7 +4,6 @@ Tests for extraction logic in extractors.py
 
 import pytest
 from textwrap import dedent
-from datetime import datetime
 from extractors import (
     extract_timeline, _find_timestamp, _find_actor, _parse_timestamp_str,
     _detect_line_severity, _build_severity_timeline, _compute_metrics,
@@ -17,7 +16,7 @@ from extractors import (
 
 class TestExtractTimeline:
     """Tests for extract_timeline function"""
-    
+
     def test_extracts_simple_timeline(self):
         """Should extract events with timestamps"""
         text = dedent("""
@@ -25,13 +24,13 @@ class TestExtractTimeline:
             @sarah 14:23: This line does
             Another line without time
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 1
         assert events[0]['time'] == '14:23'
         assert events[0]['actor'] == 'sarah'
-    
+
     def test_handles_lines_without_timestamps(self):
         """Should skip lines without timestamps"""
         text = dedent("""
@@ -39,12 +38,12 @@ class TestExtractTimeline:
         @sarah 14:23: This line does
         Another line without time
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 1
         assert events[0]['time'] == '14:23'
-    
+
     def test_filters_false_positive_timestamps(self):
         """Should filter 'ratio of 3:45' type false positives"""
         text = dedent("""
@@ -52,9 +51,9 @@ class TestExtractTimeline:
         @sarah 14:23: Actual event
         running version 1:45 in production
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         # Should only get the real timestamp
         assert len(events) == 1
         assert events[0]['time'] == '14:23'
@@ -68,9 +67,9 @@ class TestExtractTimeline:
             @mike 14:30: Rollback complete
             @sarah 14:35: Back to normal
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 5
         assert events[0]['time'] == '14:23'
         assert events[0]['actor'] == 'sarah'
@@ -87,9 +86,9 @@ class TestExtractTimeline:
             
             @alice 14:30: Event after blank lines
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 3
         assert all('time' in event for event in events)
         # Text should be stripped
@@ -103,9 +102,9 @@ class TestExtractTimeline:
             @mike 14:25:30: Time with seconds
             @alice 2024-01-15 14:30: Full datetime
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 3
         assert events[0]['time'] == '14:23'
         assert events[1]['time'] == '14:25:30'
@@ -119,9 +118,9 @@ class TestExtractTimeline:
             Automatic recovery started at 14:25
             @sarah 14:30: Manual intervention
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 3
         # First two should not have 'actor' key
         assert 'actor' not in events[0]
@@ -132,9 +131,9 @@ class TestExtractTimeline:
     def test_preserves_original_text(self):
         """Should preserve the full original line text"""
         text = "@sarah 14:23: Seeing elevated errors on payment-service"
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 1
         # Full line should be preserved
         assert events[0]['text'] == text
@@ -153,9 +152,9 @@ class TestExtractTimeline:
             With no timestamps at all
             Just descriptions and notes
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert events == []
 
     def test_filters_multiple_false_positives(self):
@@ -167,9 +166,9 @@ class TestExtractTimeline:
             @sarah 14:23: Actual incident event
             another ratio of 2:15 after fix
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         # Should only get the one real timestamp
         assert len(events) == 1
         assert events[0]['time'] == '14:23'
@@ -180,9 +179,9 @@ class TestExtractTimeline:
             Error: Database timeout: retry failed at 14:23
             Status: resolved: monitoring at 14:30
         """).strip()
-        
+
         events = extract_timeline(text)
-        
+
         assert len(events) == 2
         assert events[0]['time'] == '14:23'
         assert events[1]['time'] == '14:30'
@@ -193,22 +192,22 @@ class TestExtractTimeline:
 
 class TestFindTimestamp:
     """Tests for _find_timestamp helper"""
-    
+
     def test_finds_simple_time(self):
         """Should find HH:MM format"""
         result = _find_timestamp("Event occurred at 14:23 UTC")
         assert result == "14:23"
-    
+
     def test_finds_time_with_seconds(self):
         """Should find HH:MM:SS format"""
         result = _find_timestamp("Deploy at 14:23:45")
         assert result == "14:23:45"
-    
+
     def test_returns_none_for_no_timestamp(self):
         """Should return None when no timestamp found"""
         result = _find_timestamp("Just some text")
         assert result is None
-    
+
     def test_filters_ratio_false_positive(self):
         """Should filter out 'ratio of 3:45' patterns"""
         result = _find_timestamp("error ratio of 3:45")
@@ -217,23 +216,23 @@ class TestFindTimestamp:
 
 class TestFindActor:
     """Tests for _find_actor helper"""
-    
+
     def test_finds_mention(self):
         """Should find @mention actors"""
         result = _find_actor("@sarah investigating issue")
         assert result == "sarah"
-    
+
     def test_finds_name_colon(self):
         """Should find 'Name:' format"""
         result = _find_actor("Sarah: checking logs")
         assert result == "Sarah"
-    
+
     def test_filters_common_labels(self):
         """Should filter out labels like 'Error:', 'Time:'"""
         assert _find_actor("Error: connection failed") is None
         assert _find_actor("Time: 14:23") is None
         assert _find_actor("Status: resolved") is None
-    
+
     def test_returns_none_for_no_actor(self):
         """Should return None when no actor found"""
         result = _find_actor("System automatically recovered")
@@ -244,7 +243,7 @@ class TestFindActor:
         assert _find_actor("google.com: returned 500") is None
         assert _find_actor("api.example.com: timeout") is None
         assert _find_actor("service.io: connection refused") is None
-    
+
     def test_accepts_names_with_dots(self):
         """Should accept firstname.lastname as actors"""
         assert _find_actor("sarah.chen: investigating") == "sarah.chen"
@@ -252,7 +251,7 @@ class TestFindActor:
 
 class TestIdentifyActions:
     """Tests for identify_actions function"""
-    
+
     def test_finds_investigation_actions(self):
         """Should identify investigation-type actions"""
         text = dedent("""
@@ -260,15 +259,15 @@ class TestIdentifyActions:
             @mike checked the logs
             @alice analyzing error patterns
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 3
         assert all(a['category'] == 'investigation' for a in actions)
         assert actions[0]['action'] == 'investigating'
         assert actions[1]['action'] == 'checked'
         assert actions[2]['action'] == 'analyzing'
-    
+
     def test_finds_remediation_actions(self):
         """Should identify remediation-type actions"""
         text = dedent("""
@@ -276,9 +275,9 @@ class TestIdentifyActions:
             @mike rolled back the change
             @alice restarted the service
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 3
         assert all(a['category'] == 'remediation' for a in actions)
         assert actions[0]['action'] == 'deployed'
@@ -291,9 +290,9 @@ class TestIdentifyActions:
             @mike escalated to management
             @alice confirmed the issue
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 3
         assert all(a['category'] == 'communication' for a in actions)
         assert actions[0]['action'] == 'notified'
@@ -307,15 +306,15 @@ class TestIdentifyActions:
             @mike mitigated the impact
             @alice completed the rollback
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 3
         assert all(a['category'] == 'status' for a in actions)
         assert actions[0]['action'] == 'resolved'
         assert actions[1]['action'] == 'mitigated'
         assert actions[2]['action'] == 'completed'
-    
+
     def test_case_insensitive_matching(self):
         """Should match actions regardless of case"""
         text = dedent("""
@@ -323,44 +322,44 @@ class TestIdentifyActions:
             @mike Rolled Back the change
             @alice ReStArTeD the service
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 3
         # Actions should be lowercase (as stored in keywords)
         assert actions[0]['action'] == 'deployed'
-    
+
     def test_preserves_full_context(self):
         """Should preserve the full line as context"""
         text = "@sarah deployed payment-service v2.1.3 to production"
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 1
         assert actions[0]['context'] == text
-    
+
     def test_one_action_per_line(self):
         """Should only record first action per line"""
         text = "@sarah investigated and then deployed the fix"
-        
+
         actions = identify_actions(text)
-        
+
         # Should only get first action found
         assert len(actions) == 1
         assert actions[0]['action'] in ['investigated', 'deployed']
-    
+
     def test_empty_input(self):
         """Should handle empty input"""
         assert identify_actions("") == []
         assert identify_actions("   \n\n   ") == []
-    
+
     def test_no_actions_found(self):
         """Should return empty list when no actions found"""
         text = dedent("""
             Just some regular text
             With no action keywords
         """).strip()
-        
+
         assert identify_actions(text) == []
 
     def test_finds_mixed_action_categories(self):
@@ -371,9 +370,9 @@ class TestIdentifyActions:
             @alice notified stakeholders
             @bob resolved the ticket
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 4
         assert actions[0]['category'] == 'investigation'
         assert actions[1]['category'] == 'remediation'
@@ -383,9 +382,9 @@ class TestIdentifyActions:
     def test_handles_multi_word_actions(self):
         """Should match multi-word actions like 'rolled back'"""
         text = "@sarah rolled back the deploy"
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 1
         assert actions[0]['action'] == 'rolled back'
         assert actions[0]['category'] == 'remediation'
@@ -397,9 +396,9 @@ class TestIdentifyActions:
             @mike investigating in production
             the service was restarted by ops
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 3
         assert 'deployed' in [a['action'] for a in actions]
         assert 'investigating' in [a['action'] for a in actions]
@@ -413,9 +412,9 @@ class TestIdentifyActions:
             @alice deploying the fix
             @bob deployed to staging
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         assert len(actions) == 4
         assert actions[0]['action'] == 'investigating'
         assert actions[1]['action'] == 'investigated'
@@ -430,19 +429,19 @@ class TestIdentifyActions:
             Investigation report attached
             @sarah deployed the fix
         """).strip()
-        
+
         actions = identify_actions(text)
-        
+
         # Should find at least the one with @sarah
         # Might also match 'deployment' and 'investigation' - that's okay
         assert len(actions) >= 1
         # The explicit action should be found
-        assert any(a['action'] == 'deployed' and '@sarah' in a['context'] 
+        assert any(a['action'] == 'deployed' and '@sarah' in a['context']
                 for a in actions)
-        
+
 class TestExtractEntities:
     """Tests for extract_entities function"""
-    
+
     def test_extracts_services(self):
         """Should find service names"""
         text = dedent("""
@@ -450,13 +449,13 @@ class TestExtractEntities:
             user_service restarted
             auth-api responding slowly
         """).strip()
-        
+
         entities = extract_entities(text)
-        
+
         assert 'payment-service' in entities['services']
         assert 'user_service' in entities['services']
         assert 'auth-api' in entities['services']
-    
+
     def test_extracts_ip_addresses(self):
         """Should find IP addresses"""
         text = dedent("""
@@ -464,13 +463,13 @@ class TestExtractEntities:
             connecting to 10.0.0.1 failed
             timeout from 172.16.0.1
         """).strip()
-        
+
         entities = extract_entities(text)
-        
+
         assert '192.168.1.1' in entities['ips']
         assert '10.0.0.1' in entities['ips']
         assert '172.16.0.1' in entities['ips']
-    
+
     def test_extracts_domains(self):
         """Should find domain names"""
         text = dedent("""
@@ -478,23 +477,23 @@ class TestExtractEntities:
             timeout from service.uber.com
             resolved payment.stripe.com
         """).strip()
-        
+
         entities = extract_entities(text)
-        
+
         assert 'api.example.com' in entities['domains']
         assert 'service.uber.com' in entities['domains']
         assert 'payment.stripe.com' in entities['domains']
-    
+
     def test_extracts_mixed_entities(self):
         """Should find all entity types in same text"""
         text = "payment-service at 10.0.0.1 calling api.example.com"
-        
+
         entities = extract_entities(text)
-        
+
         assert len(entities['services']) == 1
         assert len(entities['ips']) == 1
         assert len(entities['domains']) == 1
-    
+
     def test_deduplicates_entities(self):
         """Should not list the same entity multiple times"""
         text = dedent("""
@@ -502,12 +501,12 @@ class TestExtractEntities:
             payment-service was restarted
             payment-service is now up
         """).strip()
-        
+
         entities = extract_entities(text)
-        
+
         # Should only appear once
         assert entities['services'].count('payment-service') == 1
-    
+
     def test_filters_invalid_ips(self):
         """Should filter out invalid IP addresses"""
         text = dedent("""
@@ -515,36 +514,36 @@ class TestExtractEntities:
             valid server at 10.0.0.1
             another invalid 256.256.256.256
         """).strip()
-        
+
         entities = extract_entities(text)
-        
+
         # Should only get the valid IP
         assert '10.0.0.1' in entities['ips']
         assert '999.999.999.999' not in entities['ips']
         assert '256.256.256.256' not in entities['ips']
-    
+
     def test_case_insensitive_services(self):
         """Should handle service names regardless of case"""
         text = "Payment-Service and USER_SERVICE are down"
-        
+
         entities = extract_entities(text)
-        
+
         # Should be lowercase
         assert 'payment-service' in entities['services']
         assert 'user_service' in entities['services']
-    
+
     def test_empty_input(self):
         """Should handle empty input"""
         entities = extract_entities("")
-        
+
         assert entities == {'services': [], 'ips': [], 'domains': []}
-    
+
     def test_no_entities_found(self):
         """Should return empty lists when no entities found"""
         text = "Just some regular text with no entities"
-        
+
         entities = extract_entities(text)
-        
+
         assert entities['services'] == []
         assert entities['ips'] == []
         assert entities['domains'] == []
@@ -552,7 +551,7 @@ class TestExtractEntities:
 
 class TestIsValidIp:
     """Tests for _is_valid_ip helper"""
-    
+
     @pytest.mark.parametrize("ip", [
         "192.168.1.1",
         "10.0.0.1",
@@ -563,7 +562,7 @@ class TestIsValidIp:
     def test_accepts_valid_ips(self, ip):
         """Should accept valid IP addresses"""
         assert _is_valid_ip(ip) is True
-    
+
     @pytest.mark.parametrize("ip", [
         "999.999.999.999",
         "256.256.256.256",
@@ -577,7 +576,7 @@ class TestIsValidIp:
 
 class TestIsLikelyDomain:
     """Tests for _is_likely_domain helper"""
-    
+
     @pytest.mark.parametrize("domain", [
         "api.example.com",
         "service.uber.com",
@@ -586,7 +585,7 @@ class TestIsLikelyDomain:
     def test_accepts_valid_domains(self, domain):
         """Should accept reasonable domain names"""
         assert _is_likely_domain(domain) is True
-    
+
     @pytest.mark.parametrize("domain", [
         "a.b",          # Too short
         "x.co",         # Too short
@@ -597,7 +596,7 @@ class TestIsLikelyDomain:
 
 class TestDetectSeverity:
     """Tests for detect_severity function"""
-    
+
     def test_detects_critical_severity(self):
         """Should identify critical incidents"""
         text = dedent("""
@@ -605,14 +604,14 @@ class TestDetectSeverity:
             complete outage affecting all users
             critical system failure
         """).strip()
-        
+
         result = detect_severity(text)
-        
+
         assert result['level'] == 'critical'
         assert 'is down' in result['indicators']
         assert 'outage' in result['indicators']
         assert 'critical' in result['indicators']
-    
+
     def test_detects_high_severity(self):
         """Should identify high severity incidents"""
         text = dedent("""
@@ -620,46 +619,46 @@ class TestDetectSeverity:
             high error rate detected
             performance issues reported
         """).strip()
-        
+
         result = detect_severity(text)
-        
+
         assert result['level'] == 'high'
         assert 'degraded' in result['indicators']
         assert 'high error' in result['indicators']
-    
+
     def test_detects_medium_severity(self):
         """Should identify medium severity incidents"""
         text = dedent("""
             intermittent issues reported
             affecting some users
         """).strip()
-        
+
         result = detect_severity(text)
-        
+
         assert result['level'] == 'medium'
         assert 'intermittent' in result['indicators']
         assert 'some users' in result['indicators']
-    
+
     def test_detects_low_severity(self):
         """Should identify low severity incidents"""
         text = "minor cosmetic issue in UI"
-        
+
         result = detect_severity(text)
-        
+
         assert result['level'] == 'low'
         assert 'minor' in result['indicators']
         assert 'cosmetic' in result['indicators']
-    
+
     def test_unknown_severity_when_no_indicators(self):
         """Should return unknown when no severity indicators found"""
         text = "Just some regular incident notes with no severity words"
-        
+
         result = detect_severity(text)
-        
+
         assert result['level'] == 'unknown'
         assert result['indicators'] == []
         assert result['confidence'] == 'low'
-    
+
     def test_prioritizes_critical_over_lower(self):
         """Should return critical even if lower severity keywords present"""
         text = dedent("""
@@ -667,62 +666,62 @@ class TestDetectSeverity:
             some minor issues also noted
             intermittent problems too
         """).strip()
-        
+
         result = detect_severity(text)
-        
+
         # Critical should win
         assert result['level'] == 'critical'
         assert 'is down' in result['indicators']
-    
+
     def test_confidence_high_with_multiple_indicators(self):
         """Should have high confidence with 3+ indicators"""
         text = "critical outage, service down, complete failure"
-        
+
         result = detect_severity(text)
-        
+
         assert result['confidence'] == 'high'
         assert len(result['indicators']) >= 3
-    
+
     def test_confidence_medium_with_few_indicators(self):
         """Should have medium confidence with 1-2 indicators"""
         text = "service is down"
-        
+
         result = detect_severity(text)
-        
+
         assert result['confidence'] == 'medium'
         assert len(result['indicators']) >= 1
         assert len(result['indicators']) < 3
-    
+
     def test_confidence_low_with_no_indicators(self):
         """Should have low confidence with no indicators"""
         text = "regular incident description"
-        
+
         result = detect_severity(text)
-        
+
         assert result['confidence'] == 'low'
-    
+
     def test_case_insensitive_matching(self):
         """Should match severity keywords regardless of case"""
         text = "CRITICAL OUTAGE - Service DOWN"
-        
+
         result = detect_severity(text)
-        
+
         assert result['level'] == 'critical'
         assert len(result['indicators']) >= 2
-    
+
     def test_multi_word_indicators(self):
         """Should match multi-word severity indicators"""
         text = "experiencing high error rate and complete loss of service"
-        
+
         result = detect_severity(text)
-        
+
         # Should find multi-word indicators
         assert 'high error rate' in result['indicators'] or 'complete loss' in result['indicators']
-    
+
     def test_empty_input(self):
         """Should handle empty input"""
         result = detect_severity("")
-        
+
         assert result['level'] == 'unknown'
         assert result['indicators'] == []
 

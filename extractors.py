@@ -5,7 +5,6 @@ Uses patterns from patterns.py to extract structured information.
 
 import re
 from datetime import datetime
-from typing import List, Dict, Optional
 from patterns import (
     TIMESTAMP_PATTERNS,
     ACTOR_PATTERNS,
@@ -24,7 +23,7 @@ from patterns import (
 _SENTINEL_DATE = datetime(1970, 1, 1)
 
 
-def _parse_timestamp_str(timestamp_str: str) -> Optional[datetime]:
+def _parse_timestamp_str(timestamp_str: str) -> datetime | None:
     """
     Parse a raw timestamp string into a datetime object.
 
@@ -52,7 +51,7 @@ def _parse_timestamp_str(timestamp_str: str) -> Optional[datetime]:
         if len(parts) == 3:
             return _SENTINEL_DATE.replace(
                 hour=int(parts[0]), minute=int(parts[1]), second=int(parts[2]))
-        elif len(parts) == 2:
+        if len(parts) == 2:
             return _SENTINEL_DATE.replace(
                 hour=int(parts[0]), minute=int(parts[1]))
     except (ValueError, IndexError):
@@ -61,33 +60,33 @@ def _parse_timestamp_str(timestamp_str: str) -> Optional[datetime]:
     return None
 
 
-def extract_timeline(text: str) -> List[Dict[str, str]]:
+def extract_timeline(text: str) -> list[dict[str, str]]:
     """
     Extract chronological events with timestamps from incident text.
-    
+
     Args:
         text: Raw incident text (chat logs, notes, etc.)
-    
+
     Returns:
         List of events, each with:
         - time: extracted timestamp
         - text: the line/context containing the event
         - actor: person who took action (if identified)
-    
+
     Example:
         >>> text = "@sarah 14:23: Seeing elevated errors"
         >>> extract_timeline(text)
         [{'time': '14:23', 'text': '@sarah 14:23: Seeing elevated errors', 'actor': 'sarah'}]
     """
     events = []
-    
+
     # Split text into lines for processing
     lines = text.strip().split('\n')
-    
+
     for line in lines:
         # Strip whitespace from each line
         line = line.strip()
-        
+
         # Skip empty lines
         if not line:
             continue
@@ -121,7 +120,7 @@ def extract_timeline(text: str) -> List[Dict[str, str]]:
     return events
 
 
-def _find_timestamp(text: str) -> Optional[str]:
+def _find_timestamp(text: str) -> str | None:
     """
     Find first timestamp in text using TIMESTAMP_PATTERNS.
     Returns the timestamp string or None.
@@ -139,30 +138,30 @@ def _find_timestamp(text: str) -> Optional[str]:
 def _is_likely_timestamp(text: str, timestamp: str) -> bool:
     """
     Context-based filtering to reduce false positives.
-    
+
     Filters out patterns like:
     - "error ratio of 3:45" (ratio, not time)
     - "running version 1:45" (version, not time)
     """
     text_lower = text.lower()
-    
+
     # Check for false positive indicators
     false_positive_words = ['ratio', 'version', 'scaled']
-    
+
     # Get text around the timestamp
     timestamp_index = text.find(timestamp)
     if timestamp_index > 0:
         # Look at ~20 chars before timestamp
         context_before = text_lower[max(0, timestamp_index-20):timestamp_index]
-        
+
         for word in false_positive_words:
             if word in context_before:
                 return False
-    
+
     return True
 
 
-def _find_actor(text: str) -> Optional[str]:
+def _find_actor(text: str) -> str | None:
     """
     Find actor (person) in text using ACTOR_PATTERNS.
     Returns actor name/username or None.
@@ -180,7 +179,7 @@ def _find_actor(text: str) -> Optional[str]:
 def _is_likely_actor(actor: str) -> bool:
     """
     Context-based filtering for actor names.
-    
+
     Filters out common labels like:
     - Time, Error, Status, Note
     - Domain names (ending in .com, .org, etc.)
@@ -188,50 +187,50 @@ def _is_likely_actor(actor: str) -> bool:
     common_labels = ['time', 'error', 'status', 'note', 'warning',
                      'info', 'debug', 'system',
                      'channel', 'here', 'everyone']
-    
+
     # Filter common labels
     if actor.lower() in common_labels:
         return False
-    
+
     # Filter domain names - check if it ends with a known TLD
     actor_lower = actor.lower()
     if '.' in actor_lower:
         tld = actor_lower.rsplit('.', 1)[-1]
         if tld in KNOWN_TLDS:
             return False
-    
+
     return True
 
 
-def identify_actions(text: str) -> List[Dict[str, str]]:
+def identify_actions(text: str) -> list[dict[str, str]]:
     """
     Identify actions taken during incident response.
-    
+
     Args:
         text: Raw incident text
-    
+
     Returns:
         List of actions found, each with:
         - action: the action keyword
         - category: type of action (investigation, remediation, etc.)
         - context: the line where action was found
-    
+
     Example:
         >>> text = "@sarah deployed fix to production"
         >>> identify_actions(text)
-        [{'action': 'deployed', 'category': 'remediation', 
+        [{'action': 'deployed', 'category': 'remediation',
           'context': '@sarah deployed fix to production'}]
     """
     actions = []
     lines = text.strip().split('\n')
-    
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        
+
         line_lower = line.lower()
-        
+
         # Check each category of actions (word-boundary matching to avoid
         # substring collisions like "scaled" matching inside "escalated").
         # Only record the first action found per line.
@@ -249,27 +248,27 @@ def identify_actions(text: str) -> List[Dict[str, str]]:
                     break
             if found:
                 break
-    
+
     return actions
 
 
-def extract_entities(text: str) -> Dict[str, List[str]]:
+def extract_entities(text: str) -> dict[str, list[str]]:
     """
     Extract entities (systems, services, IPs, domains) from incident text.
-    
+
     Args:
         text: Raw incident text
-    
+
     Returns:
         Dict with entity types as keys:
         - services: list of service names found
         - ips: list of IP addresses found
         - domains: list of domains found
-    
+
     Example:
         >>> text = "payment-service at 10.0.0.1 timeout from api.example.com"
         >>> extract_entities(text)
-        {'services': ['payment-service'], 'ips': ['10.0.0.1'], 
+        {'services': ['payment-service'], 'ips': ['10.0.0.1'],
          'domains': ['api.example.com']}
     """
     entities = {
@@ -277,9 +276,9 @@ def extract_entities(text: str) -> Dict[str, List[str]]:
         'ips': [],
         'domains': [],
     }
-    
+
     text_lower = text.lower()
-    
+
     # Extract services — two strategies:
     # 1. Names ending in known suffixes (authservice, payment-api)
     for match in re.finditer(ENTITY_PATTERNS['service_suffix'], text_lower):
@@ -291,21 +290,21 @@ def extract_entities(text: str) -> Dict[str, List[str]]:
         service = match.group(1)
         if _is_likely_service(service) and service not in entities['services']:
             entities['services'].append(service)
-    
+
     # Extract IPs
     ip_pattern = ENTITY_PATTERNS['ip']
     for match in re.finditer(ip_pattern, text):
         ip = match.group(1)
         if _is_valid_ip(ip) and ip not in entities['ips']:
             entities['ips'].append(ip)
-    
+
     # Extract domains
     domain_pattern = ENTITY_PATTERNS['domain']
     for match in re.finditer(domain_pattern, text_lower):
         domain = match.group(1)
         if _is_likely_domain(domain) and domain not in entities['domains']:
             entities['domains'].append(domain)
-    
+
     return entities
 
 
@@ -356,10 +355,7 @@ def _is_likely_domain(domain: str) -> bool:
     # Check that the TLD is a known one (filters firstname.lastname patterns
     # like "sarah.chen" where "chen" is not a recognized TLD)
     tld = domain.rsplit('.', 1)[-1]
-    if tld not in KNOWN_TLDS:
-        return False
-
-    return True
+    return tld in KNOWN_TLDS
 
 
 def _is_negated_severity(line: str, keyword: str) -> bool:
@@ -388,7 +384,7 @@ def _severity_keyword_in_line(line_lower: str, keyword: str) -> bool:
     return bool(re.search(pattern, line_lower)) and not _is_negated_severity(line_lower, keyword)
 
 
-def _detect_line_severity(line: str) -> Optional[Dict[str, str]]:
+def _detect_line_severity(line: str) -> dict[str, str] | None:
     """
     Assess severity of a single line.
 
@@ -403,7 +399,7 @@ def _detect_line_severity(line: str) -> Optional[Dict[str, str]]:
     return None
 
 
-def _build_severity_timeline(events: List[Dict]) -> List[Dict]:
+def _build_severity_timeline(events: list[dict]) -> list[dict]:
     """
     Track severity changes across sorted timeline events.
 
@@ -427,7 +423,7 @@ def _build_severity_timeline(events: List[Dict]) -> List[Dict]:
 
 
 def _find_incident_boundaries(
-    timeline: List[Dict],
+    timeline: list[dict],
 ) -> tuple:
     """
     Find incident start and end timestamps using keyword signals.
@@ -469,7 +465,7 @@ def _find_incident_boundaries(
     return start_dt, end_dt
 
 
-def _compute_metrics(timeline: List[Dict], actions: List[Dict]) -> Dict:
+def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
     """
     Compute incident metrics from sorted timeline and actions.
 
@@ -478,9 +474,9 @@ def _compute_metrics(timeline: List[Dict], actions: List[Dict]) -> Dict:
     """
     metrics = {
         'num_events': len(timeline),
-        'num_responders': len(set(
+        'num_responders': len({
             e['actor'] for e in timeline if e.get('actor')
-        )),
+        }),
     }
 
     # Duration: last timestamp - first timestamp
@@ -596,7 +592,7 @@ def _classify_ir_phase(
     event_index: int,
     total_events: int,
     containment_seen: bool,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Classify a single event line into a NIST SP 800-61 IR phase.
 
@@ -648,10 +644,7 @@ def _classify_ir_phase(
 
         # Confidence: keyword present + temporally consistent
         expected_range = _expected_position_range(phase)
-        if expected_range[0] <= position <= expected_range[1]:
-            confidence = 'high'
-        else:
-            confidence = 'medium'
+        confidence = 'high' if expected_range[0] <= position <= expected_range[1] else 'medium'
     else:
         # ── No keyword match — positional fallback ──
         if position < 0.15:
@@ -680,7 +673,7 @@ def _expected_position_range(phase: str) -> tuple:
     return ranges.get(phase, (0.0, 1.0))
 
 
-def _classify_timeline_phases(events: List[Dict]) -> List[Dict]:
+def _classify_timeline_phases(events: list[dict]) -> list[dict]:
     """
     Classify each event in a sorted timeline into an IR phase.
 
@@ -705,7 +698,7 @@ def _classify_timeline_phases(events: List[Dict]) -> List[Dict]:
     return events
 
 
-def _group_by_phase(events: List[Dict]) -> Dict[str, List[Dict]]:
+def _group_by_phase(events: list[dict]) -> dict[str, list[dict]]:
     """
     Group classified events by IR phase in canonical NIST order.
 
@@ -725,7 +718,7 @@ def _group_by_phase(events: List[Dict]) -> Dict[str, List[Dict]]:
     }
 
 
-def map_to_framework(text: str, framework: str = 'nist_800_61') -> Dict:
+def map_to_framework(text: str, framework: str = 'nist_800_61') -> dict:
     """
     Map incident text to NIST SP 800-61 IR framework phases.
 
@@ -770,14 +763,14 @@ def _extract_hhmm(time_str: str) -> str:
         t_part = time_str.split('T')[1]
         return t_part[:5]
     # Full datetime: "2024-10-15 14:23:45" → "14:23"
-    if ' ' in time_str and '-' in time_str.split(' ')[0]:
+    if ' ' in time_str and '-' in time_str.split(' ', maxsplit=1)[0]:
         t_part = time_str.split(' ')[1]
         return t_part[:5]
     # Already HH:MM or HH:MM:SS → take first 5 chars
     return time_str[:5]
 
 
-def _build_phase_summary(phases: Dict[str, List[Dict]]) -> str:
+def _build_phase_summary(phases: dict[str, list[dict]]) -> str:
     """
     Build a human-readable phase progression string.
 
@@ -812,7 +805,7 @@ def _build_phase_summary(phases: Dict[str, List[Dict]]) -> str:
     return ' -> '.join(parts)
 
 
-def detect_severity(text: str) -> Dict[str, any]:
+def detect_severity(text: str) -> dict[str, any]:
     """
     Detect incident severity based on keywords in text.
 
@@ -848,7 +841,7 @@ def detect_severity(text: str) -> Dict[str, any]:
                 if _severity_keyword_in_line(line, keyword):
                     severity_scores[level].append(keyword)
                     break
-    
+
     # Determine overall severity (highest level with indicators)
     if severity_scores['critical']:
         level = 'critical'
@@ -865,7 +858,7 @@ def detect_severity(text: str) -> Dict[str, any]:
     else:
         level = 'unknown'
         indicators = []
-    
+
     # Determine confidence based on number of indicators
     if len(indicators) >= 3:
         confidence = 'high'
@@ -886,13 +879,13 @@ def detect_severity(text: str) -> Dict[str, any]:
     }
 
 def _build_summary_text(
-    timeline: List[Dict],
-    actions: List[Dict],
-    entities: Dict[str, List[str]],
-    severity: Dict,
-    severity_timeline: List[Dict],
-    ir_phases: Dict[str, List[Dict]],
-    metrics: Dict,
+    timeline: list[dict],
+    actions: list[dict],
+    entities: dict[str, list[str]],
+    severity: dict,
+    severity_timeline: list[dict],
+    ir_phases: dict[str, list[dict]],
+    metrics: dict,
 ) -> str:
     """Assemble human-readable summary text from analysis results."""
     summary_parts = []
@@ -1043,11 +1036,11 @@ def _apply_enrichment(events, severity, actions, entities, enrichment):
 
 
 def _analyze_timeline(
-    events: List[Dict],
+    events: list[dict],
     text: str,
     client=None,
     level: str = 'none',
-) -> Dict:
+) -> dict:
     """
     Run full analysis on pre-built timeline events.
 
@@ -1094,7 +1087,7 @@ def _analyze_timeline(
     }
 
 
-def generate_summary(text: str) -> Dict[str, any]:
+def generate_summary(text: str) -> dict[str, any]:
     """
     Generate comprehensive incident summary using all extractors.
 

@@ -200,20 +200,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     type="text",
                     text=json.dumps({"error": f"Unknown tool: {name}"})
                 )]
-        
+
         # Return result as JSON
         return [TextContent(
             type="text",
             text=json.dumps(result, indent=2)
         )]
-    
+
     except Exception as e:
         # Handle any errors gracefully
         return [TextContent(
             type="text",
             text=json.dumps({"error": str(e)})
         )]
-    
+
 async def main():
     """Run the MCP server."""
     async with stdio_server() as (read_stream, write_stream):

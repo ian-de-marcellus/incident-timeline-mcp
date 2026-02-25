@@ -5,7 +5,7 @@ Tests for parsers/slack.py — Slack workspace export parsing.
 import json
 import os
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from parsers.slack import (
     parse_users,
@@ -308,7 +308,7 @@ class TestParseSlackMessages:
     def test_timestamp_parsing(self):
         messages = [_msg('1729002195.000000', user='U001', text='test')]
         result, _ = parse_slack_messages(messages, SAMPLE_USER_MAP)
-        expected = datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc)
+        expected = datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC)
         assert result[0].timestamp == expected
 
     def test_actor_resolved_via_user_map(self):
@@ -423,7 +423,7 @@ class TestParseSlackMessages:
 class TestReconstructPlaintext:
     def test_format(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor='sarah.chen',
             text='Seeing elevated errors',
             raw='Seeing elevated errors',
@@ -434,7 +434,7 @@ class TestReconstructPlaintext:
 
     def test_without_actor(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor=None,
             text='System alert',
             raw='System alert',
@@ -445,7 +445,7 @@ class TestReconstructPlaintext:
 
     def test_multiline_text_flattened(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor='sarah.chen',
             text='Line one\nLine two',
             raw='Line one\nLine two',
@@ -458,11 +458,11 @@ class TestReconstructPlaintext:
     def test_empty_messages_skipped(self):
         messages = [
             NormalizedMessage(
-                timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+                timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
                 actor='sarah.chen', text='', raw='', source='slack',
             ),
             NormalizedMessage(
-                timestamp=datetime(2024, 10, 15, 14, 24, 0, tzinfo=timezone.utc),
+                timestamp=datetime(2024, 10, 15, 14, 24, 0, tzinfo=UTC),
                 actor='sarah.chen', text='Real message', raw='Real message', source='slack',
             ),
         ]
@@ -496,7 +496,7 @@ class TestReconstructPlaintext:
 class TestBuildEventsFromMessages:
     def test_preserves_actor(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor='carol.dev', text='Fixed it', raw='Fixed it', source='slack',
         )
         events = _build_events_from_messages([msg])
@@ -504,7 +504,7 @@ class TestBuildEventsFromMessages:
 
     def test_preserves_timestamp(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor='sarah.chen', text='test', raw='test', source='slack',
         )
         events = _build_events_from_messages([msg])
@@ -513,7 +513,7 @@ class TestBuildEventsFromMessages:
 
     def test_preserves_text(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor='sarah.chen', text='Message text here', raw='raw', source='slack',
         )
         events = _build_events_from_messages([msg])
@@ -522,11 +522,11 @@ class TestBuildEventsFromMessages:
     def test_skips_empty_messages(self):
         messages = [
             NormalizedMessage(
-                timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+                timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
                 actor='sarah.chen', text='', raw='', source='slack',
             ),
             NormalizedMessage(
-                timestamp=datetime(2024, 10, 15, 14, 24, 0, tzinfo=timezone.utc),
+                timestamp=datetime(2024, 10, 15, 14, 24, 0, tzinfo=UTC),
                 actor='sarah.chen', text='Real message', raw='Real', source='slack',
             ),
         ]
@@ -535,7 +535,7 @@ class TestBuildEventsFromMessages:
 
     def test_no_actor(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor=None, text='System event', raw='System event', source='slack',
         )
         events = _build_events_from_messages([msg])
@@ -552,7 +552,7 @@ class TestBuildEventsFromMessages:
 
     def test_flattens_newlines(self):
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor='sarah.chen', text='Line one\nLine two', raw='raw', source='slack',
         )
         events = _build_events_from_messages([msg])
@@ -561,7 +561,7 @@ class TestBuildEventsFromMessages:
     def test_tld_named_actor_preserved(self):
         """Actors with TLD-like names (carol.dev) are preserved, not filtered."""
         msg = NormalizedMessage(
-            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 10, 15, 14, 23, 15, tzinfo=UTC),
             actor='carol.dev', text='I merged the PR', raw='raw', source='slack',
         )
         events = _build_events_from_messages([msg])
@@ -776,7 +776,7 @@ class TestSlackIntegration:
     def test_actors_are_display_names(self, sample_data):
         messages_json, users_json = sample_data
         result = parse_slack_export(messages_json, users_json)
-        actors = set(e.get('actor', '') for e in result['timeline'])
+        actors = {e.get('actor', '') for e in result['timeline']}
         # No raw user IDs in actors
         for actor in actors:
             if actor:
@@ -827,7 +827,7 @@ class TestCoinfluxIntegration:
         """carol.dev should appear as actor, not filtered as domain."""
         messages_json, users_json = coinflux_data
         result = parse_slack_export(messages_json, users_json)
-        actors = set(e.get('actor', '') for e in result['timeline'])
+        actors = {e.get('actor', '') for e in result['timeline']}
         assert 'carol.dev' in actors
 
     def test_bot_actors_correct(self, coinflux_data):
@@ -873,7 +873,7 @@ class TestCoinfluxIntegration:
 def _relevant_msg(actor, text):
     """Build a NormalizedMessage for relevance testing."""
     return NormalizedMessage(
-        timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
         actor=actor, text=text,
         raw=text, source='slack',
     )

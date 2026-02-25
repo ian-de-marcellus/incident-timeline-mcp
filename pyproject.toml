@@ -1,0 +1,40 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes (unused imports, undefined names)
+    "B",     # flake8-bugbear (common bugs, bare except, mutable defaults)
+    "UP",    # pyupgrade (modern Python idioms)
+    "SIM",   # flake8-simplify (unnecessary complexity)
+    "ANN",   # flake8-annotations (missing type hints)
+    "RET",   # flake8-return (unnecessary else after return)
+    "C4",    # flake8-comprehensions (unnecessary list/dict calls)
+    "PIE",   # flake8-pie (misc. lints)
+    "PLC",   # pylint conventions
+    "PLE",   # pylint errors
+]
+ignore = [
+    "ANN204",   # missing return type for __init__
+    "ANN401",   # dynamically typed expressions (Any) are allowed
+    "E501",     # line too long — handled by formatter
+    "PLC0415",  # deferred imports are intentional (circular dep avoidance)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "ANN",    # don't require type annotations in tests
+    "W291",   # intentional trailing whitespace in test fixtures
+    "W293",   # intentional blank line whitespace in test fixtures
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # start permissive, tighten later
+check_untyped_defs = true
+ignore_missing_imports = true  # third-party stubs not installed yet

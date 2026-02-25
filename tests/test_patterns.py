@@ -9,7 +9,7 @@ from patterns import TIMESTAMP_PATTERNS
 
 class TestSimpleTimePattern:
     """Tests for TIMESTAMP_PATTERNS['simple_time'] - HH:MM format"""
-    
+
     # Happy path
     @pytest.mark.parametrize("text,expected_match", [
         ("Error occurred at 14:23 in the logs", "14:23"),
@@ -23,7 +23,7 @@ class TestSimpleTimePattern:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group() == expected_match
-    
+
     # Edge cases - should NOT match
     @pytest.mark.parametrize("text", [
         "server crashed on port 8080",
@@ -34,7 +34,7 @@ class TestSimpleTimePattern:
         """Port numbers should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     @pytest.mark.parametrize("text", [
         "ratio is 5:1",
         "deployed v2:30 to production",
@@ -43,7 +43,7 @@ class TestSimpleTimePattern:
         """Non-time patterns should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     @pytest.mark.parametrize("text", [
         "Error code: 123:456",
         "EXIT_CODE:12:34",
@@ -52,7 +52,7 @@ class TestSimpleTimePattern:
         """Error codes should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     @pytest.mark.parametrize("text", [
         "ticket ID:2468",
         "ref:12:34:56:78",
@@ -61,7 +61,7 @@ class TestSimpleTimePattern:
         """IDs and references should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     # Known limitations
     @pytest.mark.xfail(reason="Ambiguous - looks like valid time, filtered in extractor")
     @pytest.mark.parametrize("text", [
@@ -77,7 +77,7 @@ class TestSimpleTimePattern:
 
 class TestFullDatetimePattern:
     """Tests for TIMESTAMP_PATTERNS['full_datetime'] - YYYY-MM-DD HH:MM:SS format"""
-    
+
     # Happy path
     @pytest.mark.parametrize("text", [
         "Incident started 2024-01-15 14:23 UTC",
@@ -90,7 +90,7 @@ class TestFullDatetimePattern:
         match = re.search(pattern, text)
         assert match is not None
         assert "202" in match.group()  # Year prefix
-    
+
     # Edge cases - should NOT match
     @pytest.mark.parametrize("text", [
         "2024-01-15",      # Date only
@@ -106,7 +106,7 @@ class TestFullDatetimePattern:
 
 class TestTimeWithSecondsPattern:
     """Tests for TIMESTAMP_PATTERNS['time_with_seconds'] - HH:MM:SS format"""
-    
+
     # Happy path
     @pytest.mark.parametrize("text,expected_match", [
         ("Deploy started at 14:23:45", "14:23:45"),
@@ -119,7 +119,7 @@ class TestTimeWithSecondsPattern:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group() == expected_match
-    
+
     # Edge cases - should NOT match
     @pytest.mark.parametrize("text", [
         "12:34:56:78",  # Too many segments
@@ -133,7 +133,7 @@ class TestTimeWithSecondsPattern:
 
 class TestISO8601Pattern:
     """Tests for TIMESTAMP_PATTERNS['iso8601'] - ISO 8601 format"""
-    
+
     @pytest.mark.parametrize("text,expected_time", [
         ("2024-10-15T14:23:15Z sarah.chen: message", "2024-10-15T14:23:15Z"),
         ("logged at 2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
@@ -148,7 +148,7 @@ class TestISO8601Pattern:
 
 class TestActorPatterns:
     """Tests for ACTOR_PATTERNS - @mentions and names"""
-    
+
     # Test @mention pattern
     @pytest.mark.parametrize("text,expected_actor", [
         ("@sarah investigating the issue", "sarah"),
@@ -163,7 +163,7 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_actor
-    
+
     @pytest.mark.parametrize("text", [
         "email@example.com has @ but shouldn't match",
         "cost is $50@item",
@@ -173,10 +173,10 @@ class TestActorPatterns:
     def test_mentions_no_false_positives(self, text):
         """Should handle @ in other contexts"""
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS['mention']
+        ACTOR_PATTERNS['mention']
         # Email might partially match, but won't match full email
         # This is acceptable behavior
-    
+
     # Test Name: pattern
     @pytest.mark.parametrize("text,expected_name", [
         ("Sarah: investigating the database", "Sarah"),
@@ -191,7 +191,7 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_name
-    
+
     @pytest.mark.parametrize("text", [
         "lowercase: should not match",
         "mixedCase: also wrong",
@@ -214,16 +214,16 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_actor
-    
+
     def test_dotted_names_not_domains(self):
         """firstname.lastname: should be actor, not domain"""
         from patterns import ACTOR_PATTERNS
-        
+
         # This should match as an actor
         text = "sarah.chen: investigating"
         actor_pattern = ACTOR_PATTERNS['name_with_dot']
         assert re.search(actor_pattern, text) is not None
-        
+
         # But actual domains shouldn't match this pattern
         assert re.search(actor_pattern, "api.example.com returned") is None
         assert re.search(actor_pattern, "timeout from service.uber.com") is None
@@ -241,7 +241,7 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         if match:
             assert match.group(1) == expected_name
-    
+
     @pytest.mark.xfail(reason="Common labels look like names, filtered in extractor")
     @pytest.mark.parametrize("text", [
         "Time: 14:23",
@@ -257,7 +257,7 @@ class TestActorPatterns:
 
 class TestActionKeywords:
     """Tests for ACTION_KEYWORDS dict"""
-    
+
     def test_has_all_categories(self):
         """Should have all action categories"""
         from patterns import ACTION_KEYWORDS
@@ -265,7 +265,7 @@ class TestActionKeywords:
         assert 'remediation' in ACTION_KEYWORDS
         assert 'communication' in ACTION_KEYWORDS
         assert 'status' in ACTION_KEYWORDS
-    
+
     def test_contains_investigation_actions(self):
         """Should include common investigation verbs in both tenses"""
         from patterns import ACTION_KEYWORDS
@@ -277,7 +277,7 @@ class TestActionKeywords:
         # Past tense
         assert 'checked' in investigation
         assert 'analyzed' in investigation
-    
+
     def test_contains_remediation_actions(self):
         """Should include common remediation verbs"""
         from patterns import ACTION_KEYWORDS
@@ -310,7 +310,7 @@ class TestActionKeywords:
         investigation = ACTION_KEYWORDS['investigation']
         assert 'tracing requests' in investigation
         assert 'profiling' in investigation
-    
+
     def test_all_lowercase(self):
         """All keywords should be lowercase for case-insensitive matching"""
         from patterns import ACTION_KEYWORDS
@@ -321,7 +321,7 @@ class TestActionKeywords:
 
 class TestSeverityKeywords:
     """Tests for SEVERITY_KEYWORDS dict"""
-    
+
     def test_has_all_severity_levels(self):
         """Should have keywords for all severity levels"""
         from patterns import SEVERITY_KEYWORDS
@@ -329,7 +329,7 @@ class TestSeverityKeywords:
         assert 'high' in SEVERITY_KEYWORDS
         assert 'medium' in SEVERITY_KEYWORDS
         assert 'low' in SEVERITY_KEYWORDS
-    
+
     def test_critical_keywords(self):
         """Critical level should include strong indicators"""
         from patterns import SEVERITY_KEYWORDS
@@ -367,7 +367,7 @@ class TestSeverityKeywords:
         medium = SEVERITY_KEYWORDS['medium']
         assert 'eta inaccurate' in medium
         assert 'delayed dispatch' in medium
-    
+
     def test_all_lowercase(self):
         """All severity keywords should be lowercase"""
         from patterns import SEVERITY_KEYWORDS
@@ -379,7 +379,7 @@ class TestSeverityKeywords:
 
 class TestEntityPatterns:
     """Tests for ENTITY_PATTERNS - services, IPs, domains"""
-    
+
     @pytest.mark.parametrize("text,expected_service", [
         ("payment-service is down", "payment-service"),
         ("user_service restarted", "user_service"),
@@ -396,7 +396,7 @@ class TestEntityPatterns:
             match = re.search(ENTITY_PATTERNS['service_compound'], text_lower)
         assert match is not None
         assert match.group(1) == expected_service
-    
+
     @pytest.mark.parametrize("text,expected_ip", [
         ("server at 192.168.1.1 is down", "192.168.1.1"),
         ("connecting to 10.0.0.1", "10.0.0.1"),
@@ -409,7 +409,7 @@ class TestEntityPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_ip
-    
+
     @pytest.mark.parametrize("text,expected_domain", [
         ("api.example.com returned 500", "api.example.com"),
         ("timeout from service.uber.com", "service.uber.com"),
@@ -422,7 +422,7 @@ class TestEntityPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_domain
-    
+
     @pytest.mark.xfail(reason="IP validation (0-255 per octet) done in extractor, not regex")
     @pytest.mark.parametrize("text", [
         "999.999.999.999",
