@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from models import NormalizedMessage
-from extractors import _analyze_timeline
+from extractors import _analyze_timeline, _get_llm_client
 from patterns import (
     NOISE_BOT_NAMES, OPS_BOT_NAMES, NOISE_PHRASES,
     ACTION_KEYWORDS, SEVERITY_KEYWORDS, IR_PHASE_KEYWORDS,
@@ -406,7 +406,8 @@ def parse_slack_export(
     events = _build_events_from_messages(normalized)
     plaintext = reconstruct_plaintext(normalized)
 
-    result = _analyze_timeline(events, plaintext)
+    client, level = _get_llm_client()
+    result = _analyze_timeline(events, plaintext, client=client, level=level)
 
     # Count threads and unique users (from filtered set)
     threaded = sum(1 for m in normalized if m.metadata.get('thread_ts'))

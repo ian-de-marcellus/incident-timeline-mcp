@@ -1,11 +1,13 @@
 """
 LLM enrichment for incident timeline analysis.
 
-Uses Claude Haiku as a fallback for low-confidence regex extractions.
-Gracefully degrades when the anthropic SDK is missing or unconfigured.
+All functions are pure — they receive the Anthropic client and model
+as parameters. No module-level state or config reads.
+
+The caller (extractors._get_llm_client) is responsible for
+constructing the client and reading settings.
 """
 
-import re
 import logging
 from typing import Dict, List, Optional
 
@@ -20,12 +22,11 @@ logger = logging.getLogger(__name__)
 
 try:
     import anthropic
-    _ANTHROPIC_AVAILABLE = True
+    ANTHROPIC_AVAILABLE = True
 except ImportError:
-    _ANTHROPIC_AVAILABLE = False
+    ANTHROPIC_AVAILABLE = False
 
-_client = None
-_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 # Valid IR phases (used to filter bad LLM output)
 _VALID_PHASES = {
@@ -35,33 +36,9 @@ _VALID_PHASES = {
 }
 
 
-def is_available() -> bool:
-    """Check if LLM enrichment is available and enabled."""
-    if not _ANTHROPIC_AVAILABLE:
-        return False
-    from config import get_settings
-    settings = get_settings()
-    return bool(settings.anthropic_api_key) and settings.llm_enrichment != 'none'
-
-
-def _get_client():
-    """Get or create the Anthropic client (lazy singleton)."""
-    global _client
-    if _client is None:
-        if not is_available():
-            return None
-        from config import get_settings
-        _client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
-    return _client
-
-
-def _get_enrichment_level() -> str:
-    """Get the configured enrichment level."""
-    from config import get_settings
-    return get_settings().llm_enrichment
-
-
 def _call_haiku(
+    client,
+    model: str,
     system: str,
     user_content: str,
     tool_schema: dict,
@@ -72,13 +49,9 @@ def _call_haiku(
 
     Returns the parsed tool input dict, or None on any failure.
     """
-    client = _get_client()
-    if client is None:
-        return None
-
     try:
         response = client.messages.create(
-            model=_MODEL,
+            model=model,
             max_tokens=2048,
             system=system,
             messages=[{"role": "user", "content": user_content}],
@@ -102,7 +75,11 @@ def _call_haiku(
 
 # ── Enrichment passes ────────────────────────────────────────────────
 
-def enrich_ir_phases(events: List[Dict]) -> Optional[List[Dict]]:
+def enrich_ir_phases(
+    events: List[Dict],
+    client,
+    model: str,
+) -> Optional[List[Dict]]:
     """
     Enrich IR phase classifications for low-confidence events.
 
@@ -144,6 +121,7 @@ def enrich_ir_phases(events: List[Dict]) -> Optional[List[Dict]]:
 
         user_content = "\n".join(lines)
         result = _call_haiku(
+            client, model,
             IR_PHASE_PROMPT, user_content,
             IR_PHASE_TOOL, "classify_phases",
         )
@@ -169,6 +147,8 @@ def enrich_ir_phases(events: List[Dict]) -> Optional[List[Dict]]:
 def enrich_severity(
     text: str,
     current_severity: Dict,
+    client,
+    model: str,
 ) -> Optional[Dict]:
     """
     Enrich severity assessment when regex confidence is low or level is unknown.
@@ -185,6 +165,7 @@ def enrich_severity(
     truncated = text[:2000]
 
     result = _call_haiku(
+        client, model,
         SEVERITY_PROMPT, truncated,
         SEVERITY_TOOL, "assess_severity",
     )
@@ -207,6 +188,8 @@ def enrich_severity(
 def enrich_actions(
     events: List[Dict],
     existing_actions: List[Dict],
+    client,
+    model: str,
 ) -> Optional[List[Dict]]:
     """
     Find actions in events where regex found none.
@@ -242,6 +225,7 @@ def enrich_actions(
 
         user_content = "\n".join(lines)
         result = _call_haiku(
+            client, model,
             ACTION_PROMPT, user_content,
             ACTION_TOOL, "identify_actions",
         )
@@ -270,6 +254,8 @@ def enrich_actions(
 def enrich_entities(
     entities: Dict[str, List[str]],
     text: str,
+    client,
+    model: str,
 ) -> Optional[Dict]:
     """
     Disambiguate entities that might be misclassified.
@@ -301,6 +287,7 @@ def enrich_entities(
     )
 
     result = _call_haiku(
+        client, model,
         ENTITY_PROMPT, user_content,
         ENTITY_TOOL, "disambiguate_entities",
     )
@@ -319,9 +306,12 @@ def enrich_timeline(
     severity: Dict,
     actions: List[Dict],
     entities: Dict[str, List[str]],
+    client,
+    model: str,
+    level: str,
 ) -> Dict:
     """
-    Run LLM enrichment passes based on configured level.
+    Run LLM enrichment passes based on enrichment level.
 
     - 'low': phase classification + severity only
     - 'regular': all four passes (phases, severity, actions, entities)
@@ -330,12 +320,11 @@ def enrich_timeline(
     Returns dict with keys: phase_updates, severity_update,
     new_actions, entity_updates (each present only if enrichment found).
     """
-    level = _get_enrichment_level()
     results = {}
 
     # Phase classification (low + regular)
     try:
-        phase_updates = enrich_ir_phases(events)
+        phase_updates = enrich_ir_phases(events, client, model)
         if phase_updates:
             results['phase_updates'] = phase_updates
     except Exception as e:
@@ -343,7 +332,7 @@ def enrich_timeline(
 
     # Severity (low + regular)
     try:
-        severity_update = enrich_severity(text, severity)
+        severity_update = enrich_severity(text, severity, client, model)
         if severity_update:
             results['severity_update'] = severity_update
     except Exception as e:
@@ -352,7 +341,7 @@ def enrich_timeline(
     # Actions (regular only)
     if level == 'regular':
         try:
-            new_actions = enrich_actions(events, actions)
+            new_actions = enrich_actions(events, actions, client, model)
             if new_actions:
                 results['new_actions'] = new_actions
         except Exception as e:
@@ -361,7 +350,7 @@ def enrich_timeline(
     # Entities (regular only)
     if level == 'regular':
         try:
-            entity_updates = enrich_entities(entities, text)
+            entity_updates = enrich_entities(entities, text, client, model)
             if entity_updates:
                 results['entity_updates'] = entity_updates
         except Exception as e:

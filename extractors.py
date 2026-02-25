@@ -962,15 +962,30 @@ def _build_summary_text(
     return "\n".join(summary_parts) if summary_parts else "No significant data extracted"
 
 
-def _try_enrich(events, text, severity, actions, entities):
-    """Attempt LLM enrichment. Returns dict or None."""
+def _get_llm_client():
+    """Construct LLM client from config. Returns (client, level) or (None, 'none')."""
     try:
-        from llm import enrich_timeline, is_available
-        if not is_available():
-            return None
-        return enrich_timeline(events, text, severity, actions, entities)
+        from llm import ANTHROPIC_AVAILABLE
+        if not ANTHROPIC_AVAILABLE:
+            return None, 'none'
+        from config import get_settings
+        settings = get_settings()
+        if not settings.anthropic_api_key or settings.llm_enrichment == 'none':
+            return None, 'none'
+        import anthropic
+        return anthropic.Anthropic(api_key=settings.anthropic_api_key), settings.llm_enrichment
     except ImportError:
-        return None
+        return None, 'none'
+
+
+def _enrich(events, text, severity, actions, entities, client, level):
+    """Run LLM enrichment with injected client. Returns dict or None."""
+    try:
+        from llm import enrich_timeline, DEFAULT_MODEL
+        return enrich_timeline(
+            events, text, severity, actions, entities,
+            client=client, model=DEFAULT_MODEL, level=level,
+        )
     except Exception:
         return None
 
@@ -1027,7 +1042,12 @@ def _apply_enrichment(events, severity, actions, entities, enrichment):
                     entities['domains'].remove(name)
 
 
-def _analyze_timeline(events: List[Dict], text: str) -> Dict:
+def _analyze_timeline(
+    events: List[Dict],
+    text: str,
+    client=None,
+    level: str = 'none',
+) -> Dict:
     """
     Run full analysis on pre-built timeline events.
 
@@ -1035,6 +1055,9 @@ def _analyze_timeline(events: List[Dict], text: str) -> Dict:
     The text is used for action/entity/severity extraction.
     Any source (plaintext extractor, Slack parser, etc.) can build
     events and feed them into this shared pipeline.
+
+    Pass client and level to enable LLM enrichment. Without a client,
+    enrichment is skipped entirely.
     """
     actions = identify_actions(text)
     entities = extract_entities(text)
@@ -1042,10 +1065,12 @@ def _analyze_timeline(events: List[Dict], text: str) -> Dict:
 
     _classify_timeline_phases(events)
 
-    # LLM enrichment (no-op without API key or when level is 'none')
-    enrichment = _try_enrich(events, text, severity, actions, entities)
-    if enrichment:
-        _apply_enrichment(events, severity, actions, entities, enrichment)
+    # LLM enrichment (no-op without client)
+    if client and level != 'none':
+        enrichment = _enrich(events, text, severity, actions, entities,
+                             client, level)
+        if enrichment:
+            _apply_enrichment(events, severity, actions, entities, enrichment)
 
     ir_phases = _group_by_phase(events)
 
@@ -1091,4 +1116,5 @@ def generate_summary(text: str) -> Dict[str, any]:
          'severity': {...}, 'summary_text': '...'}
     """
     timeline = extract_timeline(text)
-    return _analyze_timeline(timeline, text)
+    client, level = _get_llm_client()
+    return _analyze_timeline(timeline, text, client=client, level=level)

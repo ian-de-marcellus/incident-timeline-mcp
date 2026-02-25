@@ -1,11 +1,10 @@
 """
 LLM enrichment package for incident timeline analysis.
 
-Provides Claude Haiku as a fallback enrichment layer for
-low-confidence regex extractions. Gracefully degrades when
-the anthropic SDK is missing or unconfigured.
+All functions are pure — the caller constructs the Anthropic client
+and passes it in. No module-level state or config reads.
 """
 
-from .enrichment import enrich_timeline, is_available
+from .enrichment import enrich_timeline, ANTHROPIC_AVAILABLE, DEFAULT_MODEL
 
-__all__ = ['enrich_timeline', 'is_available']
+__all__ = ['enrich_timeline', 'ANTHROPIC_AVAILABLE', 'DEFAULT_MODEL']
