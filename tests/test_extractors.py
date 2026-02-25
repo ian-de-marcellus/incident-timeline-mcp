@@ -10,6 +10,8 @@ from extractors import (
     _detect_line_severity, _build_severity_timeline, _compute_metrics,
     identify_actions, extract_entities, _is_valid_ip, _is_likely_domain,
     _is_likely_service, detect_severity, generate_summary,
+    _classify_ir_phase, _classify_timeline_phases, _group_by_phase,
+    map_to_framework,
 )
 
 
@@ -1500,9 +1502,9 @@ class TestCryptoIntegration:
         assert summary['metrics']['duration'] == '35m'
 
         # Events should be sorted and have timestamps
-        timeline = summary['timeline']
-        assert len(timeline) == 9
-        assert all('timestamp' in e for e in timeline)
+        tl = summary['timeline']
+        assert len(tl) == 9
+        assert all('timestamp' in e for e in tl)
 
 
 # ── Marketplace / platform keyword tests ──────────────────────────────
@@ -1633,3 +1635,388 @@ class TestPlatformIntegration:
         timeline = summary['timeline']
         assert len(timeline) == 9
         assert all('timestamp' in e for e in timeline)
+
+
+# ============================================================
+# Phase 3 — IR framework mapping tests
+# ============================================================
+
+class TestClassifyIRPhase:
+    """Tests for _classify_ir_phase per-event classifier."""
+
+    def test_detection_by_keyword(self):
+        """Should classify detection keywords"""
+        result = _classify_ir_phase(
+            "Alert fired on payment-service", 0, 10, False)
+        assert result['ir_phase'] == 'detection'
+
+    def test_analysis_by_keyword(self):
+        """Should classify analysis keywords"""
+        result = _classify_ir_phase(
+            "Investigating root cause of latency spike", 2, 10, False)
+        assert result['ir_phase'] == 'analysis'
+
+    def test_containment_by_keyword(self):
+        """Should classify containment keywords"""
+        result = _classify_ir_phase(
+            "Rolling back deployment to v2.14.3", 5, 10, False)
+        assert result['ir_phase'] == 'containment'
+
+    def test_eradication_by_keyword(self):
+        """Should classify eradication after containment seen"""
+        result = _classify_ir_phase(
+            "PR ready with proper index fix", 7, 10, True)
+        assert result['ir_phase'] == 'eradication'
+
+    def test_recovery_by_keyword(self):
+        """Should classify recovery keywords"""
+        result = _classify_ir_phase(
+            "All metrics stable, back to normal", 8, 10, True)
+        assert result['ir_phase'] == 'recovery'
+
+    def test_post_incident_by_keyword(self):
+        """Should classify post-incident keywords"""
+        result = _classify_ir_phase(
+            "Postmortem scheduled for tomorrow", 9, 10, True)
+        assert result['ir_phase'] == 'post_incident'
+
+    def test_early_monitoring_is_analysis_not_recovery(self):
+        """'stable'/'monitoring' early in timeline → analysis, not recovery"""
+        result = _classify_ir_phase(
+            "Metrics stable for now, monitoring closely", 1, 10, False)
+        assert result['ir_phase'] == 'analysis'
+
+    def test_late_monitoring_is_recovery(self):
+        """'stable'/'monitoring' late in timeline → recovery"""
+        result = _classify_ir_phase(
+            "Metrics stable, back to normal", 8, 10, True)
+        assert result['ir_phase'] == 'recovery'
+
+    def test_eradication_before_containment_becomes_containment(self):
+        """Eradication keywords before containment_seen → containment"""
+        result = _classify_ir_phase(
+            "Fix deployed to mitigate impact", 3, 10, False)
+        assert result['ir_phase'] == 'containment'
+
+    def test_discussion_downgrades_containment(self):
+        """Discussion of rollback → analysis, not containment"""
+        result = _classify_ir_phase(
+            "I vote rollback while we add the index", 4, 10, False)
+        assert result['ir_phase'] == 'analysis'
+
+    def test_no_keyword_early_position_detection(self):
+        """No keyword + early position → detection with low confidence"""
+        result = _classify_ir_phase(
+            "Something is happening with the service", 0, 10, False)
+        assert result['ir_phase'] == 'detection'
+        assert result['phase_confidence'] == 'low'
+
+    def test_no_keyword_late_position_recovery_or_post(self):
+        """No keyword + late position → post_incident with low confidence"""
+        result = _classify_ir_phase(
+            "Calendar invite sent", 9, 10, True)
+        assert result['ir_phase'] == 'post_incident'
+        assert result['phase_confidence'] == 'low'
+
+    def test_keyword_match_high_confidence(self):
+        """Keyword + expected position → high confidence"""
+        result = _classify_ir_phase(
+            "Alert fired on the service", 0, 10, False)
+        assert result['phase_confidence'] == 'high'
+
+    def test_keyword_match_unexpected_position_medium(self):
+        """Keyword + unexpected position → medium confidence"""
+        # detection keyword very late in timeline
+        result = _classify_ir_phase(
+            "Another alert fired", 9, 10, True)
+        assert result['phase_confidence'] == 'medium'
+
+    def test_empty_line(self):
+        """Should handle empty line gracefully"""
+        result = _classify_ir_phase("", 0, 1, False)
+        assert 'ir_phase' in result
+        assert 'phase_confidence' in result
+
+
+class TestClassifyTimelinePhases:
+    """Tests for _classify_timeline_phases orchestrator."""
+
+    def test_simple_progression(self):
+        """Should classify a simple 6-event incident with correct phases"""
+        events = [
+            {'text': 'Alert fired on service', 'time': '14:23'},
+            {'text': 'Investigating the root cause', 'time': '14:24'},
+            {'text': 'Rolling back the deployment', 'time': '14:27'},
+            {'text': 'Fix deployed with proper index', 'time': '14:35'},
+            {'text': 'Metrics stable, back to normal', 'time': '14:40'},
+            {'text': 'Postmortem scheduled for tomorrow', 'time': '14:45'},
+        ]
+        result = _classify_timeline_phases(events)
+
+        assert result[0]['ir_phase'] == 'detection'
+        assert result[1]['ir_phase'] == 'analysis'
+        assert result[2]['ir_phase'] == 'containment'
+        # After containment, eradication keywords → eradication
+        assert result[3]['ir_phase'] == 'eradication'
+        assert result[4]['ir_phase'] == 'recovery'
+        assert result[5]['ir_phase'] == 'post_incident'
+
+    def test_adds_fields_to_events(self):
+        """Should add ir_phase and phase_confidence to event dicts"""
+        events = [
+            {'text': 'Alert fired on service', 'time': '14:23'},
+        ]
+        _classify_timeline_phases(events)
+        assert 'ir_phase' in events[0]
+        assert 'phase_confidence' in events[0]
+
+    def test_empty_input(self):
+        """Should handle empty list"""
+        result = _classify_timeline_phases([])
+        assert result == []
+
+    def test_containment_seen_propagates(self):
+        """After containment event, eradication keywords should map to eradication"""
+        events = [
+            {'text': 'Seeing elevated errors', 'time': '14:23'},
+            {'text': 'Rolling back deploy', 'time': '14:30'},
+            {'text': 'PR ready with fix', 'time': '14:45'},
+        ]
+        _classify_timeline_phases(events)
+        assert events[1]['ir_phase'] == 'containment'
+        assert events[2]['ir_phase'] == 'eradication'
+
+
+class TestGroupByPhase:
+    """Tests for _group_by_phase."""
+
+    def test_groups_events_correctly(self):
+        """Should group events into correct phase buckets"""
+        events = [
+            {'text': 'e1', 'ir_phase': 'detection'},
+            {'text': 'e2', 'ir_phase': 'analysis'},
+            {'text': 'e3', 'ir_phase': 'analysis'},
+            {'text': 'e4', 'ir_phase': 'containment'},
+            {'text': 'e5', 'ir_phase': 'recovery'},
+        ]
+        groups = _group_by_phase(events)
+        assert len(groups['detection']) == 1
+        assert len(groups['analysis']) == 2
+        assert len(groups['containment']) == 1
+        assert len(groups['recovery']) == 1
+        assert 'eradication' not in groups
+        assert 'post_incident' not in groups
+
+    def test_canonical_order(self):
+        """Groups should be in NIST canonical order"""
+        events = [
+            {'text': 'e1', 'ir_phase': 'recovery'},
+            {'text': 'e2', 'ir_phase': 'detection'},
+            {'text': 'e3', 'ir_phase': 'containment'},
+        ]
+        groups = _group_by_phase(events)
+        phases = list(groups.keys())
+        assert phases == ['detection', 'containment', 'recovery']
+
+    def test_empty_input(self):
+        """Should handle empty list"""
+        assert _group_by_phase([]) == {}
+
+
+class TestComputeMetricsPhase3:
+    """Tests for TTD/TTC in _compute_metrics."""
+
+    def test_ttc_computed(self):
+        """Should compute time to contain from first event to first containment"""
+        timeline = [
+            {'text': 'Alert fired', 'timestamp': '1970-01-01T14:23:00',
+             'ir_phase': 'detection'},
+            {'text': 'Investigating', 'timestamp': '1970-01-01T14:25:00',
+             'ir_phase': 'analysis'},
+            {'text': 'Rolling back', 'timestamp': '1970-01-01T14:30:00',
+             'ir_phase': 'containment'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['time_to_contain'] == '7m'
+
+    def test_ttd_zero_when_first_event_is_detection(self):
+        """TTD = 0m when first event is already detection"""
+        timeline = [
+            {'text': 'Alert fired on service', 'timestamp': '1970-01-01T14:23:00',
+             'ir_phase': 'detection'},
+            {'text': 'Investigating', 'timestamp': '1970-01-01T14:25:00',
+             'ir_phase': 'analysis'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert metrics['time_to_detect'] == '0m'
+
+    def test_no_ttc_without_containment(self):
+        """Should not have TTC without containment events"""
+        timeline = [
+            {'text': 'Alert fired', 'timestamp': '1970-01-01T14:23:00',
+             'ir_phase': 'detection'},
+            {'text': 'Investigating', 'timestamp': '1970-01-01T14:25:00',
+             'ir_phase': 'analysis'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert 'time_to_contain' not in metrics
+
+    def test_backward_compatible_no_phases(self):
+        """Without ir_phase, no TTD/TTC should be computed"""
+        timeline = [
+            {'text': 'event 1', 'timestamp': '1970-01-01T14:23:00'},
+            {'text': 'event 2', 'timestamp': '1970-01-01T14:25:00'},
+        ]
+        metrics = _compute_metrics(timeline, [])
+        assert 'time_to_detect' not in metrics
+        assert 'time_to_contain' not in metrics
+
+
+class TestMapToFramework:
+    """Tests for map_to_framework public function."""
+
+    def test_returns_expected_structure(self):
+        """Should return dict with all expected keys"""
+        text = dedent("""
+            @sarah 14:23: Alert fired on payment-service
+            @mike 14:25: Investigating root cause
+            @sarah 14:30: Rolling back deployment
+            @mike 14:35: Metrics stable, back to normal
+        """).strip()
+        result = map_to_framework(text)
+        assert 'framework' in result
+        assert 'timeline' in result
+        assert 'phases' in result
+        assert 'phase_summary' in result
+        assert 'metrics' in result
+        assert result['framework'] == 'nist_800_61'
+
+    def test_timeline_has_phase_fields(self):
+        """Timeline events should have ir_phase and phase_confidence"""
+        text = "@sarah 14:23: Alert fired on service"
+        result = map_to_framework(text)
+        assert len(result['timeline']) == 1
+        assert 'ir_phase' in result['timeline'][0]
+        assert 'phase_confidence' in result['timeline'][0]
+
+    def test_phase_summary_string(self):
+        """Should produce a readable phase summary"""
+        text = dedent("""
+            @sarah 14:23: Alert fired on payment-service
+            @mike 14:25: Investigating root cause
+            @sarah 14:30: Rolling back deployment
+            @mike 14:35: Back to normal, metrics stable
+        """).strip()
+        result = map_to_framework(text)
+        assert 'Detection' in result['phase_summary']
+        assert '->' in result['phase_summary']
+
+    def test_empty_input(self):
+        """Should handle empty input"""
+        result = map_to_framework("")
+        assert result['timeline'] == []
+        assert result['phases'] == {}
+        assert result['phase_summary'] == ''
+
+
+class TestGenerateSummaryPhase3:
+    """Tests for generate_summary with IR phase integration."""
+
+    def test_summary_includes_ir_phases(self):
+        """Summary should include ir_phases dict"""
+        text = dedent("""
+            @sarah 14:23: Alert fired on payment-service
+            @mike 14:25: Investigating the issue
+            @sarah 14:30: Rolling back deploy
+            @mike 14:35: Back to normal
+        """).strip()
+        summary = generate_summary(text)
+        assert 'ir_phases' in summary
+        assert isinstance(summary['ir_phases'], dict)
+
+    def test_summary_text_includes_phase_progression(self):
+        """Summary text should mention IR phases"""
+        text = dedent("""
+            @sarah 14:23: Alert fired on payment-service
+            @mike 14:25: Investigating the issue
+            @sarah 14:30: Rolling back deploy
+            @mike 14:35: Back to normal
+        """).strip()
+        summary = generate_summary(text)
+        assert 'IR Phases' in summary['summary_text']
+
+    def test_summary_text_includes_ttc(self):
+        """Summary text should include time to contain when available"""
+        text = dedent("""
+            @sarah 14:23: Alert fired on payment-service
+            @mike 14:25: Investigating the issue
+            @sarah 14:30: Rolling back deploy
+            @mike 14:35: Back to normal
+        """).strip()
+        summary = generate_summary(text)
+        assert 'Time to contain' in summary['summary_text']
+
+
+class TestIRPhaseIntegration:
+    """End-to-end test with realistic incident."""
+
+    def test_realistic_incident_phase_progression(self):
+        """Realistic incident should produce reasonable phase mapping"""
+        text = dedent("""
+            2024-10-15T14:23:15Z sarah.chen: Seeing elevated response times on checkout-db-primary. Starting incident investigation.
+            2024-10-15T14:23:47Z james.rodriguez: Taking IC role. Declared SEV-2.
+            2024-10-15T14:24:12Z alex.kim: Checking support queue now.
+            2024-10-15T14:25:03Z sarah.chen: Database CPU at 94%. Looking at slow query log.
+            2024-10-15T14:27:01Z sarah.chen: Found it! Query hitting orders table without index.
+            2024-10-15T14:28:45Z james.rodriguez: What are our options for immediate mitigation?
+            2024-10-15T14:30:15Z james.rodriguez: Agreed. Start rollback.
+            2024-10-15T14:30:42Z david.park: Rollback initiated. ETA 3 minutes.
+            2024-10-15T14:31:05Z sarah.chen: Setting rate limit on dashboard endpoint.
+            2024-10-15T14:33:48Z david.park: Rollback complete.
+            2024-10-15T14:34:20Z sarah.chen: Query count dropped. CPU back to 23%. Metrics stable.
+            2024-10-15T14:35:01Z james.rodriguez: Rollback complete. Metrics returning to normal.
+            2024-10-15T14:55:30Z sarah.chen: 30 min mark. All metrics stable.
+            2024-10-15T14:56:15Z james.rodriguez: INCIDENT RESOLVED. Action items assigned. Post-incident review scheduled for tomorrow.
+            2024-10-15T15:12:45Z david.park: PR ready for review. Added proper index.
+            2024-10-15T15:45:22Z david.park: Load test passed!
+            2024-10-15T16:45:12Z james.rodriguez: Incident report published. Post-incident review tomorrow.
+        """).strip()
+
+        result = map_to_framework(text)
+
+        # Should have phases in correct NIST order
+        phase_names = list(result['phases'].keys())
+        assert 'detection' in phase_names
+        assert 'analysis' in phase_names
+        assert 'containment' in phase_names
+
+        # TTD should be 0m (first event is detection)
+        assert result['metrics'].get('time_to_detect') == '0m'
+
+        # TTC should be ~7m (14:23 → 14:30)
+        ttc = result['metrics'].get('time_to_contain')
+        assert ttc is not None
+        # Extract minutes for range check
+        ttc_min = int(ttc.replace('m', ''))
+        assert 6 <= ttc_min <= 8
+
+        # Phase summary should be non-empty
+        assert 'Detection' in result['phase_summary']
+        assert '->' in result['phase_summary']
+
+    def test_generate_summary_with_phases(self):
+        """generate_summary should include phase data for realistic input"""
+        text = dedent("""
+            @sarah 14:23: Seeing elevated errors on payment-service
+            @mike 14:25: Investigating the database
+            @sarah 14:27: Rolling back deploy
+            @mike 14:30: Rollback complete, metrics stable
+            @sarah 14:35: All clear, back to normal
+            @mike 14:40: Postmortem scheduled for tomorrow
+        """).strip()
+
+        summary = generate_summary(text)
+
+        assert 'ir_phases' in summary
+        assert len(summary['ir_phases']) >= 3
+        assert 'IR Phases' in summary['summary_text']

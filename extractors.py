@@ -11,6 +11,8 @@ from patterns import (
     ACTOR_PATTERNS,
     ACTION_KEYWORDS,
     SEVERITY_KEYWORDS,
+    IR_PHASE_KEYWORDS,
+    DISCUSSION_INDICATORS,
     ENTITY_PATTERNS,
     INFRA_KEYWORDS,
     KNOWN_TLDS,
@@ -465,7 +467,293 @@ def _compute_metrics(timeline: List[Dict], actions: List[Dict]) -> Dict:
                         break
                 break
 
+    # Phase-aware metrics (only when events have ir_phase field)
+    phase_events = [e for e in timeline if e.get('ir_phase')]
+    if phase_events and parsed:
+        first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
+
+        # TTD: time to first detection event with a declaration keyword
+        declaration_keywords = ['declared', 'sev-']
+        detection_events = [
+            e for e in phase_events
+            if e.get('ir_phase') == 'detection' and e.get('timestamp')
+        ]
+        # Check if first event is detection — TTD = 0m
+        if detection_events:
+            first_detection = detection_events[0]
+            first_det_ts = datetime.fromisoformat(first_detection['timestamp'])
+            if first_det_ts == first_ts:
+                metrics['time_to_detect'] = '0m'
+            else:
+                # Look for a declaration keyword in detection events
+                for det_event in detection_events:
+                    det_lower = det_event['text'].lower()
+                    if any(kw in det_lower for kw in declaration_keywords):
+                        det_ts = datetime.fromisoformat(det_event['timestamp'])
+                        ttd_delta = det_ts - first_ts
+                        ttd_minutes = int(ttd_delta.total_seconds()) // 60
+                        metrics['time_to_detect'] = f"{ttd_minutes}m"
+                        break
+                else:
+                    # No declaration keyword, use first detection event
+                    ttd_delta = first_det_ts - first_ts
+                    ttd_minutes = int(ttd_delta.total_seconds()) // 60
+                    metrics['time_to_detect'] = f"{ttd_minutes}m"
+
+        # TTC: time to first containment event
+        containment_events = [
+            e for e in phase_events
+            if e.get('ir_phase') == 'containment' and e.get('timestamp')
+        ]
+        if containment_events:
+            contain_ts = datetime.fromisoformat(
+                containment_events[0]['timestamp']
+            )
+            ttc_delta = contain_ts - first_ts
+            ttc_minutes = int(ttc_delta.total_seconds()) // 60
+            metrics['time_to_contain'] = f"{ttc_minutes}m"
+
     return metrics
+
+
+# ── NIST SP 800-61 IR phase mapping ─────────────────────────────────
+
+# Canonical phase order (used for tie-breaking and display)
+_PHASE_ORDER = [
+    'detection', 'analysis', 'containment',
+    'eradication', 'recovery', 'post_incident',
+]
+
+# Downgrade map: discussion of an action shifts it one phase earlier
+_DOWNGRADE_MAP = {
+    'containment': 'analysis',
+    'eradication': 'containment',
+    'recovery': 'containment',
+}
+
+# Tie-breaking priority: later/more-specific phases win
+_PHASE_PRIORITY = {phase: i for i, phase in enumerate(_PHASE_ORDER)}
+
+
+def _classify_ir_phase(
+    line: str,
+    event_index: int,
+    total_events: int,
+    containment_seen: bool,
+) -> Dict[str, str]:
+    """
+    Classify a single event line into a NIST SP 800-61 IR phase.
+
+    Three-pass classification:
+    1. Keyword matching against IR_PHASE_KEYWORDS
+    2. Temporal/positional heuristics
+    3. Confidence scoring
+
+    Returns {'ir_phase': ..., 'phase_confidence': ...}
+    """
+    line_lower = line.lower()
+    position = event_index / max(total_events - 1, 1)
+
+    # ── Pass 1: keyword matching ──
+    matched_phases = []
+    for phase, keywords in IR_PHASE_KEYWORDS.items():
+        for keyword in keywords:
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, line_lower):
+                matched_phases.append(phase)
+                break  # one match per phase is enough
+
+    # ── Pass 2: temporal heuristics ──
+    is_discussion = any(ind in line_lower for ind in DISCUSSION_INDICATORS)
+
+    if matched_phases:
+        # Apply discussion downgrade
+        if is_discussion:
+            matched_phases = [
+                _DOWNGRADE_MAP.get(p, p) for p in matched_phases
+            ]
+
+        # "monitoring"/"stable" early in incident → analysis, not recovery
+        if position < 0.3:
+            matched_phases = [
+                'analysis' if p == 'recovery' else p
+                for p in matched_phases
+            ]
+
+        # Containment/eradication disambiguation
+        if not containment_seen:
+            matched_phases = [
+                'containment' if p == 'eradication' else p
+                for p in matched_phases
+            ]
+
+        # Tie-break: highest priority (later phase) wins
+        phase = max(matched_phases, key=lambda p: _PHASE_PRIORITY[p])
+
+        # Confidence: keyword present + temporally consistent
+        expected_range = _expected_position_range(phase)
+        if expected_range[0] <= position <= expected_range[1]:
+            confidence = 'high'
+        else:
+            confidence = 'medium'
+    else:
+        # ── No keyword match — positional fallback ──
+        if position < 0.15:
+            phase = 'detection'
+        elif position > 0.85:
+            phase = 'post_incident'
+        elif position > 0.7:
+            phase = 'recovery'
+        else:
+            phase = 'analysis'
+        confidence = 'low'
+
+    return {'ir_phase': phase, 'phase_confidence': confidence}
+
+
+def _expected_position_range(phase: str) -> tuple:
+    """Return (min_pos, max_pos) where a phase is temporally expected."""
+    ranges = {
+        'detection':     (0.0, 0.3),
+        'analysis':      (0.0, 0.7),
+        'containment':   (0.1, 0.8),
+        'eradication':   (0.3, 1.0),
+        'recovery':      (0.4, 1.0),
+        'post_incident': (0.6, 1.0),
+    }
+    return ranges.get(phase, (0.0, 1.0))
+
+
+def _classify_timeline_phases(events: List[Dict]) -> List[Dict]:
+    """
+    Classify each event in a sorted timeline into an IR phase.
+
+    Iterates events in order, tracks containment_seen state, and adds
+    'ir_phase' and 'phase_confidence' fields to each event in-place.
+    """
+    if not events:
+        return events
+
+    total = len(events)
+    containment_seen = False
+
+    for i, event in enumerate(events):
+        result = _classify_ir_phase(
+            event['text'], i, total, containment_seen,
+        )
+        event['ir_phase'] = result['ir_phase']
+        event['phase_confidence'] = result['phase_confidence']
+        if result['ir_phase'] == 'containment':
+            containment_seen = True
+
+    return events
+
+
+def _group_by_phase(events: List[Dict]) -> Dict[str, List[Dict]]:
+    """
+    Group classified events by IR phase in canonical NIST order.
+
+    Only includes phases that have at least one event.
+    """
+    groups = {}
+    for event in events:
+        phase = event.get('ir_phase')
+        if phase:
+            groups.setdefault(phase, []).append(event)
+
+    # Return in canonical order, omitting empty phases
+    return {
+        phase: groups[phase]
+        for phase in _PHASE_ORDER
+        if phase in groups
+    }
+
+
+def map_to_framework(text: str, framework: str = 'nist_800_61') -> Dict:
+    """
+    Map incident text to NIST SP 800-61 IR framework phases.
+
+    Runs the full pipeline: extraction → phase classification → grouping → metrics.
+
+    Returns dict with:
+    - framework: framework identifier
+    - timeline: events with ir_phase and phase_confidence fields
+    - phases: events grouped by IR phase (canonical order)
+    - phase_summary: human-readable phase progression string
+    - metrics: incident metrics including TTD and TTC
+    """
+    # 1. Extract and sort timeline
+    timeline = extract_timeline(text)
+    actions = identify_actions(text)
+
+    # 2. Classify phases
+    _classify_timeline_phases(timeline)
+
+    # 3. Group by phase
+    phases = _group_by_phase(timeline)
+
+    # 4. Compute metrics (with phase-aware TTD/TTC)
+    metrics = _compute_metrics(timeline, actions)
+
+    # 5. Build phase summary string
+    phase_summary = _build_phase_summary(phases)
+
+    return {
+        'framework': framework,
+        'timeline': timeline,
+        'phases': phases,
+        'phase_summary': phase_summary,
+        'metrics': metrics,
+    }
+
+
+def _extract_hhmm(time_str: str) -> str:
+    """Extract HH:MM from any timestamp format for display."""
+    # ISO 8601: "2024-10-15T14:23:15Z" → "14:23"
+    if 'T' in time_str:
+        t_part = time_str.split('T')[1]
+        return t_part[:5]
+    # Full datetime: "2024-10-15 14:23:45" → "14:23"
+    if ' ' in time_str and '-' in time_str.split(' ')[0]:
+        t_part = time_str.split(' ')[1]
+        return t_part[:5]
+    # Already HH:MM or HH:MM:SS → take first 5 chars
+    return time_str[:5]
+
+
+def _build_phase_summary(phases: Dict[str, List[Dict]]) -> str:
+    """
+    Build a human-readable phase progression string.
+
+    Example: "Detection (14:23) → Analysis (14:24-14:29) → Containment (14:30)"
+    """
+    if not phases:
+        return ''
+
+    parts = []
+    display_names = {
+        'detection': 'Detection',
+        'analysis': 'Analysis',
+        'containment': 'Containment',
+        'eradication': 'Eradication',
+        'recovery': 'Recovery',
+        'post_incident': 'Post-Incident',
+    }
+
+    for phase, events in phases.items():
+        name = display_names.get(phase, phase)
+        times = [e.get('time', '') for e in events if e.get('time')]
+        if times:
+            first = _extract_hhmm(times[0])
+            last = _extract_hhmm(times[-1])
+            if len(times) == 1 or first == last:
+                parts.append(f"{name} ({first})")
+            else:
+                parts.append(f"{name} ({first}-{last})")
+        else:
+            parts.append(name)
+
+    return ' -> '.join(parts)
 
 
 def detect_severity(text: str) -> Dict[str, any]:
@@ -568,6 +856,10 @@ def generate_summary(text: str) -> Dict[str, any]:
     entities = extract_entities(text)
     severity = detect_severity(text)
 
+    # Classify IR phases before computing metrics (metrics uses ir_phase)
+    _classify_timeline_phases(timeline)
+    ir_phases = _group_by_phase(timeline)
+
     # Compute temporal analysis
     severity_timeline = _build_severity_timeline(timeline)
     metrics = _compute_metrics(timeline, actions)
@@ -586,9 +878,18 @@ def generate_summary(text: str) -> Dict[str, any]:
             evolution = ' -> '.join(s['level'] for s in severity_timeline)
             summary_parts.append(f"  Evolution: {evolution}")
 
+    # Phase progression
+    phase_summary = _build_phase_summary(ir_phases)
+    if phase_summary:
+        summary_parts.append(f"IR Phases: {phase_summary}")
+
     # Metrics
     if metrics.get('duration'):
         summary_parts.append(f"Duration: {metrics['duration']}")
+    if metrics.get('time_to_detect'):
+        summary_parts.append(f"Time to detect: {metrics['time_to_detect']}")
+    if metrics.get('time_to_contain'):
+        summary_parts.append(f"Time to contain: {metrics['time_to_contain']}")
     if metrics.get('time_to_resolve'):
         summary_parts.append(f"Time to resolve: {metrics['time_to_resolve']}")
     if metrics['num_responders'] > 0:
@@ -632,6 +933,7 @@ def generate_summary(text: str) -> Dict[str, any]:
         'entities': entities,
         'severity': severity,
         'severity_timeline': severity_timeline,
+        'ir_phases': ir_phases,
         'metrics': metrics,
         'summary_text': summary_text,
     }

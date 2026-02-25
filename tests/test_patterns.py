@@ -454,5 +454,100 @@ class TestDomainInfraKeywords:
             assert keyword in INFRA_KEYWORDS, f"'{keyword}' missing from INFRA_KEYWORDS"
 
 
+# ============================================================
+# Phase 3 — IR phase keyword validation
+# ============================================================
+
+class TestIRPhaseKeywords:
+    """Tests for IR_PHASE_KEYWORDS dict"""
+
+    def test_has_all_nist_phases(self):
+        """Should have all 6 NIST SP 800-61 phases"""
+        from patterns import IR_PHASE_KEYWORDS
+        expected = ['detection', 'analysis', 'containment',
+                    'eradication', 'recovery', 'post_incident']
+        for phase in expected:
+            assert phase in IR_PHASE_KEYWORDS, f"'{phase}' missing from IR_PHASE_KEYWORDS"
+
+    def test_all_keywords_lowercase(self):
+        """All IR phase keywords should be lowercase"""
+        from patterns import IR_PHASE_KEYWORDS
+        for phase, keywords in IR_PHASE_KEYWORDS.items():
+            for keyword in keywords:
+                assert keyword == keyword.lower(), \
+                    f"'{keyword}' in {phase} is not lowercase"
+
+    def test_detection_keywords(self):
+        """Detection phase should include alert and declaration keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        detection = IR_PHASE_KEYWORDS['detection']
+        assert 'alert fired' in detection
+        assert 'detected' in detection
+        assert 'elevated' in detection
+        assert 'declared' in detection
+        assert 'sev-1' in detection
+
+    def test_analysis_keywords(self):
+        """Analysis phase should include investigation keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        analysis = IR_PHASE_KEYWORDS['analysis']
+        assert 'investigating' in analysis
+        assert 'root cause' in analysis
+        assert 'debugging' in analysis
+
+    def test_containment_keywords(self):
+        """Containment phase should include rollback and isolation keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        containment = IR_PHASE_KEYWORDS['containment']
+        assert 'rolling back' in containment
+        assert 'rollback' in containment
+        assert 'rate limiting' in containment
+        assert 'circuit breaker' in containment
+
+    def test_eradication_keywords(self):
+        """Eradication phase should include fix and patch keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        eradication = IR_PHASE_KEYWORDS['eradication']
+        assert 'fix deployed' in eradication
+        assert 'patched' in eradication
+        assert 'pr ready' in eradication
+
+    def test_recovery_keywords(self):
+        """Recovery phase should include restoration and stability keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        recovery = IR_PHASE_KEYWORDS['recovery']
+        assert 'restored' in recovery
+        assert 'back to normal' in recovery
+        assert 'metrics stable' in recovery
+        assert 'incident resolved' in recovery
+
+    def test_post_incident_keywords(self):
+        """Post-incident phase should include review and report keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        post = IR_PHASE_KEYWORDS['post_incident']
+        assert 'postmortem' in post
+        assert 'post-mortem' in post
+        assert 'lessons learned' in post
+        assert 'incident report' in post
+
+
+class TestDiscussionIndicators:
+    """Tests for DISCUSSION_INDICATORS list"""
+
+    def test_indicators_present(self):
+        """Should include common discussion markers"""
+        from patterns import DISCUSSION_INDICATORS
+        assert 'i vote' in DISCUSSION_INDICATORS
+        assert 'should we' in DISCUSSION_INDICATORS
+        assert "let's" in DISCUSSION_INDICATORS
+        assert 'what are our' in DISCUSSION_INDICATORS
+
+    def test_all_lowercase(self):
+        """All discussion indicators should be lowercase"""
+        from patterns import DISCUSSION_INDICATORS
+        for ind in DISCUSSION_INDICATORS:
+            assert ind == ind.lower(), f"'{ind}' is not lowercase"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

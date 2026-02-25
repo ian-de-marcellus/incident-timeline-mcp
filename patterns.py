@@ -118,6 +118,74 @@ SEVERITY_KEYWORDS = {
     'low': ['minor', 'cosmetic', 'edge case', 'rare'],
 }
 
+# NIST SP 800-61 incident response phase keywords.
+# Maps each IR lifecycle phase to indicator strings.
+# Note: Some overlap with ACTION_KEYWORDS is intentional —
+# ACTION_KEYWORDS classifies *what kind of action* (investigation vs remediation),
+# IR_PHASE_KEYWORDS classifies *where in the lifecycle* (analysis vs containment).
+IR_PHASE_KEYWORDS = {
+    'detection': [
+        'seeing', 'noticed', 'alert fired', 'alert triggered',
+        'flagged', 'detected', 'anomaly', 'elevated',
+        'spike detected', 'pagerduty',
+        'starting incident', 'started incident',
+        'declared', 'sev-1', 'sev-2', 'sev-3',
+    ],
+    'analysis': [
+        'investigating', 'checking', 'analyzing', 'debugging',
+        'tracing', 'root cause', 'found it', 'looking at',
+        'examining', 'reviewing', 'profiling', 'auditing',
+        'what are our', 'options',
+        'checking chain', 'tracing transaction', 'reviewing ledger',
+        'tracing requests',
+    ],
+    'containment': [
+        'rolling back', 'rolled back', 'rollback',
+        'rate limiting', 'rate limited',
+        'killing', 'killed', 'blocking', 'blocked',
+        'circuit breaker', 'circuit breaker triggered',
+        'halted trading', 'paused withdrawals', 'disabled deposits',
+        'froze', 'freezing', 'frozen',
+        'throttling', 'throttled',
+        'load shedding', 'shedding load',
+        'draining', 'failover', 'failed over',
+        'rerouting', 'rerouted',
+        'temporary', 'stopgap', 'quick fix',
+    ],
+    'eradication': [
+        'fix deployed', 'deploying fix', 'deployed fix',
+        'proper fix', 'permanent fix',
+        'patched', 'patching',
+        'updated config', 'config updated',
+        'pr ready', 'pull request',
+        'added index', 'created index',
+        'load test', 'load test passed',
+        'redeploying', 'redeploy',
+    ],
+    'recovery': [
+        'restored', 'back to normal', 'returning to normal',
+        'metrics stable', 'all clear', 'all-clear',
+        'stable', 'resolved', 'incident resolved',
+        'recovering', 'recovery',
+        're-enabled', 'resumed',
+        'back to baseline', 'healthy',
+    ],
+    'post_incident': [
+        'postmortem', 'post-mortem', 'post mortem',
+        'pir', 'post-incident review',
+        'incident report', 'lessons learned',
+        'action items', 'scheduled for tomorrow',
+        'retrospective', 'write up', 'write-up',
+    ],
+}
+
+# Lines matching these indicators are *discussing* an action, not performing it.
+# They get downgraded one phase (containment → analysis, eradication → containment).
+DISCUSSION_INDICATORS = [
+    'options:', 'i vote', 'what are our', 'should we',
+    "let's", 'we could', 'what if', 'how about',
+]
+
 # Entity patterns - systems, services, IPs, domains
 ENTITY_PATTERNS = {
     # Single-word names ending in known suffixes (e.g., authservice, payment-api)

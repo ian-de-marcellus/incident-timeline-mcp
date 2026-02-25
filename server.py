@@ -17,6 +17,7 @@ from extractors import (
     extract_entities,
     detect_severity,
     generate_summary,
+    map_to_framework,
 )
 
 # Create the server instance
@@ -104,6 +105,27 @@ async def list_tools() -> list[Tool]:
                 "required": ["text"]
             }
         ),
+        Tool(
+            name="map_to_framework",
+            description="Map incident events to NIST SP 800-61 IR framework phases "
+                       "(Detection, Analysis, Containment, Eradication, Recovery, Post-Incident). "
+                       "Returns structured phase mapping with timeline, groupings, and metrics.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Raw incident text (chat logs, notes, etc.)"
+                    },
+                    "framework": {
+                        "type": "string",
+                        "description": "Framework identifier (default: nist_800_61)",
+                        "default": "nist_800_61"
+                    }
+                },
+                "required": ["text"]
+            }
+        ),
     ]
 
 @app.call_tool()
@@ -133,6 +155,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = detect_severity(text)
         elif name == "generate_summary":
             result = generate_summary(text)
+        elif name == "map_to_framework":
+            framework = arguments.get("framework", "nist_800_61")
+            result = map_to_framework(text, framework=framework)
         else:
             return [TextContent(
                 type="text",
