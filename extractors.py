@@ -275,41 +275,39 @@ def extract_entities(text: str) -> dict[str, list[str]]:
         {'services': ['payment-service'], 'ips': ['10.0.0.1'],
          'domains': ['api.example.com']}
     """
-    entities = {
-        'services': [],
-        'ips': [],
-        'domains': [],
-    }
+    services: set[str] = set()
+    ips: set[str] = set()
+    domains: set[str] = set()
 
     text_lower = text.lower()
 
     # Extract services — two strategies:
     # 1. Names ending in known suffixes (authservice, payment-api)
     for match in re.finditer(ENTITY_PATTERNS['service_suffix'], text_lower):
-        service = match.group(1)
-        if service not in entities['services']:
-            entities['services'].append(service)
+        services.add(match.group(1))
     # 2. Compound names with infrastructure keywords (checkout-db-primary)
     for match in re.finditer(ENTITY_PATTERNS['service_compound'], text_lower):
         service = match.group(1)
-        if _is_likely_service(service) and service not in entities['services']:
-            entities['services'].append(service)
+        if _is_likely_service(service):
+            services.add(service)
 
     # Extract IPs
-    ip_pattern = ENTITY_PATTERNS['ip']
-    for match in re.finditer(ip_pattern, text):
+    for match in re.finditer(ENTITY_PATTERNS['ip'], text):
         ip = match.group(1)
-        if _is_valid_ip(ip) and ip not in entities['ips']:
-            entities['ips'].append(ip)
+        if _is_valid_ip(ip):
+            ips.add(ip)
 
     # Extract domains
-    domain_pattern = ENTITY_PATTERNS['domain']
-    for match in re.finditer(domain_pattern, text_lower):
+    for match in re.finditer(ENTITY_PATTERNS['domain'], text_lower):
         domain = match.group(1)
-        if _is_likely_domain(domain) and domain not in entities['domains']:
-            entities['domains'].append(domain)
+        if _is_likely_domain(domain):
+            domains.add(domain)
 
-    return entities
+    return {
+        'services': sorted(services),
+        'ips': sorted(ips),
+        'domains': sorted(domains),
+    }
 
 
 def _is_valid_ip(ip: str) -> bool:
