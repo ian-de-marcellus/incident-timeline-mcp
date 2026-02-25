@@ -3,8 +3,10 @@ Core extraction logic for incident timeline analysis.
 Uses patterns from patterns.py to extract structured information.
 """
 
+import logging
 import re
 from datetime import datetime
+from typing import Any
 from patterns import (
     TIMESTAMP_PATTERNS,
     ACTOR_PATTERNS,
@@ -17,6 +19,8 @@ from patterns import (
     KNOWN_TLDS,
 )
 
+
+logger = logging.getLogger(__name__)
 
 # Sentinel date for time-only timestamps (no date component).
 # Allows time-only values to be sorted among themselves.
@@ -465,6 +469,13 @@ def _find_incident_boundaries(
     return start_dt, end_dt
 
 
+def _format_duration(minutes: int) -> str:
+    """Format a minute count as 'Xh Ym' or 'Ym'."""
+    if minutes >= 60:
+        return f"{minutes // 60}h {minutes % 60}m"
+    return f"{minutes}m"
+
+
 def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
     """
     Compute incident metrics from sorted timeline and actions.
@@ -472,7 +483,7 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
     Returns dict with num_events, num_responders, duration, duration_seconds,
     and time_to_resolve (when a "resolved" action is found).
     """
-    metrics = {
+    metrics: dict[str, Any] = {
         'num_events': len(timeline),
         'num_responders': len({
             e['actor'] for e in timeline if e.get('actor')
@@ -486,24 +497,16 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
         last = datetime.fromisoformat(parsed[-1]['timestamp'])
         delta = last - first
         metrics['duration_seconds'] = int(delta.total_seconds())
-        minutes = int(delta.total_seconds()) // 60
-        if minutes >= 60:
-            metrics['duration'] = f"{minutes // 60}h {minutes % 60}m"
-        else:
-            metrics['duration'] = f"{minutes}m"
+        metrics['duration'] = _format_duration(int(delta.total_seconds()) // 60)
 
     # Incident-aware duration: keyword-based boundaries
     incident_start, incident_end = _find_incident_boundaries(timeline)
     if incident_start and incident_end and incident_end > incident_start:
         inc_delta = incident_end - incident_start
         metrics['incident_duration_seconds'] = int(inc_delta.total_seconds())
-        inc_minutes = int(inc_delta.total_seconds()) // 60
-        if inc_minutes >= 60:
-            metrics['incident_duration'] = (
-                f"{inc_minutes // 60}h {inc_minutes % 60}m"
-            )
-        else:
-            metrics['incident_duration'] = f"{inc_minutes}m"
+        metrics['incident_duration'] = _format_duration(
+            int(inc_delta.total_seconds()) // 60
+        )
 
     # TTR heuristic: find last "resolved" action and compute time from start
     if parsed:
@@ -514,8 +517,9 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
                         first_ts = datetime.fromisoformat(parsed[0]['timestamp'])
                         resolve_ts = datetime.fromisoformat(event['timestamp'])
                         ttr_delta = resolve_ts - first_ts
-                        ttr_minutes = int(ttr_delta.total_seconds()) // 60
-                        metrics['time_to_resolve'] = f"{ttr_minutes}m"
+                        metrics['time_to_resolve'] = _format_duration(
+                            int(ttr_delta.total_seconds()) // 60
+                        )
                         break
                 break
 
@@ -543,14 +547,16 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
                     if any(kw in det_lower for kw in declaration_keywords):
                         det_ts = datetime.fromisoformat(det_event['timestamp'])
                         ttd_delta = det_ts - first_ts
-                        ttd_minutes = int(ttd_delta.total_seconds()) // 60
-                        metrics['time_to_detect'] = f"{ttd_minutes}m"
+                        metrics['time_to_detect'] = _format_duration(
+                            int(ttd_delta.total_seconds()) // 60
+                        )
                         break
                 else:
                     # No declaration keyword, use first detection event
                     ttd_delta = first_det_ts - first_ts
-                    ttd_minutes = int(ttd_delta.total_seconds()) // 60
-                    metrics['time_to_detect'] = f"{ttd_minutes}m"
+                    metrics['time_to_detect'] = _format_duration(
+                        int(ttd_delta.total_seconds()) // 60
+                    )
 
         # TTC: time to first containment event
         containment_events = [
@@ -562,8 +568,9 @@ def _compute_metrics(timeline: list[dict], actions: list[dict]) -> dict:
                 containment_events[0]['timestamp']
             )
             ttc_delta = contain_ts - first_ts
-            ttc_minutes = int(ttc_delta.total_seconds()) // 60
-            metrics['time_to_contain'] = f"{ttc_minutes}m"
+            metrics['time_to_contain'] = _format_duration(
+                int(ttc_delta.total_seconds()) // 60
+            )
 
     return metrics
 
@@ -805,7 +812,7 @@ def _build_phase_summary(phases: dict[str, list[dict]]) -> str:
     return ' -> '.join(parts)
 
 
-def detect_severity(text: str) -> dict[str, any]:
+def detect_severity(text: str) -> dict[str, Any]:
     """
     Detect incident severity based on keywords in text.
 
@@ -979,7 +986,8 @@ def _enrich(events, text, severity, actions, entities, client, level):
             events, text, severity, actions, entities,
             client=client, model=DEFAULT_MODEL, level=level,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning("LLM enrichment failed: %s", e)
         return None
 
 
@@ -1087,7 +1095,7 @@ def _analyze_timeline(
     }
 
 
-def generate_summary(text: str) -> dict[str, any]:
+def generate_summary(text: str) -> dict[str, Any]:
     """
     Generate comprehensive incident summary using all extractors.
 
