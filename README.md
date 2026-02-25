@@ -259,4 +259,4 @@ MIT
 
 ## Author
 
-Built by Ian de Marcellus and Claude Sonnet 4.5 as a portfolio project demonstrating MCP server development, pattern recognition, and systematic testing approaches.
+Built by Ian de Marcellus, Claude Sonnet 4.5, and Claude Opus 4.6 as a portfolio project demonstrating MCP server development, pattern recognition, and systematic testing approaches.

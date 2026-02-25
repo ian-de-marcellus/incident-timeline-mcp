@@ -17,11 +17,13 @@ TIMESTAMP_PATTERNS = {
 }
 
 # Actor/person patterns - identifies who is taking action
+# Ordered so speaker patterns (name before colon) are checked before @mentions.
+# This ensures "sarah.chen: @alex.kim check this" extracts sarah.chen (the speaker).
 # Note: Names with lowercase particles (de, von, van) are not captured
 ACTOR_PATTERNS = {
-    'mention': r'@([\w.-]+)',  # Slack-style @mentions: @sarah, @mike.jones
-    'name_with_dot': r'\b([a-z]+\.[a-z]+):',  # firstname.lastname: format (lowercase)
-    'name_colon': r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?):',  # "Sarah:", "Mike Jones:"
+    'name_with_dot': r'\b([a-z]+\.[a-z]+):',  # speaker: firstname.lastname:
+    'name_colon': r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?):',  # speaker: "Sarah:", "Mike Jones:"
+    'mention': r'@([\w.-]+)',  # fallback: Slack-style @mentions: @sarah, @mike.jones
 }
 
 # Action verb patterns - common incident response actions
@@ -84,7 +86,29 @@ SEVERITY_KEYWORDS = {
 
 # Entity patterns - systems, services, IPs, domains
 ENTITY_PATTERNS = {
-    'service': r'\b([a-z][a-z0-9_-]*(?:service|api|worker|job|daemon))\b',
+    # Single-word names ending in known suffixes (e.g., authservice, payment-api)
+    'service_suffix': r'\b([a-z][a-z0-9_-]*(?:service|api|worker|job|daemon))\b',
+    # Compound names: 2+ segments joined by hyphens or underscores.
+    # Filtered by INFRA_KEYWORDS in extractors.py to avoid false positives.
+    'service_compound': r'\b([a-z][a-z0-9]*(?:[-_][a-z0-9]+)+)\b',
     'ip': r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b',
     'domain': r'\b([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})\b',
+}
+
+# Infrastructure keywords for service name validation.
+# A compound name is considered a service if any segment matches one of these.
+INFRA_KEYWORDS = {
+    'service', 'api', 'worker', 'job', 'daemon',
+    'db', 'database', 'cache', 'queue', 'proxy', 'gateway',
+    'server', 'cluster', 'node', 'primary', 'secondary',
+    'master', 'replica', 'processor', 'handler',
+}
+
+# Known TLDs for domain validation.
+# Domains whose TLD isn't in this set are rejected (catches firstname.lastname
+# false positives like "sarah.chen" where "chen" is not a TLD).
+KNOWN_TLDS = {
+    'com', 'org', 'net', 'io', 'co', 'edu', 'gov', 'dev', 'app',
+    'us', 'uk', 'de', 'fr', 'jp', 'au', 'ca', 'info', 'biz', 'xyz',
+    'cloud', 'tech', 'ai', 'ly', 'me', 'tv', 'cc', 'ru', 'cn', 'br',
 }

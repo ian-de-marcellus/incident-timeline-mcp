@@ -309,7 +309,7 @@ class TestSeverityKeywords:
         """Critical level should include strong indicators"""
         from patterns import SEVERITY_KEYWORDS
         critical = SEVERITY_KEYWORDS['critical']
-        assert 'down' in critical
+        assert 'is down' in critical
         assert 'outage' in critical
         assert 'critical' in critical
     
@@ -334,8 +334,11 @@ class TestEntityPatterns:
     def test_matches_service_names(self, text, expected_service):
         """Should match common service name patterns"""
         from patterns import ENTITY_PATTERNS
-        pattern = ENTITY_PATTERNS['service']
-        match = re.search(pattern, text.lower())  # Case-insensitive
+        text_lower = text.lower()
+        # Try suffix pattern first, then compound pattern
+        match = re.search(ENTITY_PATTERNS['service_suffix'], text_lower)
+        if not match:
+            match = re.search(ENTITY_PATTERNS['service_compound'], text_lower)
         assert match is not None
         assert match.group(1) == expected_service
     

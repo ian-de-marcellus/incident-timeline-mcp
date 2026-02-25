@@ -4,7 +4,7 @@ Tests for extraction logic in extractors.py
 
 import pytest
 from textwrap import dedent
-from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions, extract_entities, _is_valid_ip, _is_likely_domain, detect_severity, generate_summary
+from extractors import extract_timeline, _find_timestamp, _find_actor, identify_actions, extract_entities, _is_valid_ip, _is_likely_domain, _is_likely_service, detect_severity, generate_summary
 
 
 class TestExtractTimeline:
@@ -873,3 +873,176 @@ class TestGenerateSummary:
         assert len(summary['summary_text']) > 50
 
         print(summary)
+
+
+# ============================================================
+# Phase 1 regression tests — one class per bug fix
+# ============================================================
+
+class TestActorPriority:
+    """Regression tests: speaker patterns should take priority over @mentions."""
+
+    def test_speaker_over_mention(self):
+        """name.dot: speaker should win over @mention in body"""
+        actor = _find_actor("sarah.chen: @alex.kim can you check the logs?")
+        assert actor == "sarah.chen"
+
+    def test_mention_fallback(self):
+        """@mention should still work when no speaker pattern matches"""
+        actor = _find_actor("@sarah 14:23: Seeing elevated errors")
+        assert actor == "sarah"
+
+    def test_channel_mention_filtered(self):
+        """@channel is a broadcast, not a person"""
+        actor = _find_actor("@channel alert fired on payment-service")
+        assert actor is None
+
+    def test_here_mention_filtered(self):
+        """@here is a broadcast, not a person"""
+        actor = _find_actor("@here incident declared")
+        assert actor is None
+
+    def test_everyone_mention_filtered(self):
+        """@everyone is a broadcast, not a person"""
+        actor = _find_actor("@everyone please join the war room")
+        assert actor is None
+
+    def test_timeline_extracts_speaker_not_mention(self):
+        """End-to-end: extract_timeline should use the speaker as actor"""
+        text = "2024-10-15T14:23:15Z sarah.chen: @channel Seeing elevated response times"
+        events = extract_timeline(text)
+        assert len(events) == 1
+        assert events[0]['actor'] == 'sarah.chen'
+
+    def test_timeline_mention_with_speaker(self):
+        """When a speaker mentions someone else, actor should be the speaker"""
+        text = "2024-10-15T14:23:47Z james.rodriguez: @alex.kim can you check customer impact?"
+        events = extract_timeline(text)
+        assert len(events) == 1
+        assert events[0]['actor'] == 'james.rodriguez'
+
+
+class TestActionWordBoundary:
+    """Regression tests: action keyword matching should use word boundaries."""
+
+    def test_escalated_not_matched_as_scaled(self):
+        """'escalated' should match as communication, not remediation ('scaled')"""
+        actions = identify_actions("@mike escalated to management")
+        assert len(actions) == 1
+        assert actions[0]['action'] == 'escalated'
+        assert actions[0]['category'] == 'communication'
+
+    def test_scaled_still_matches(self):
+        """'scaled' should still match as remediation when used standalone"""
+        actions = identify_actions("@sarah scaled the service to 10 replicas")
+        assert len(actions) == 1
+        assert actions[0]['action'] == 'scaled'
+        assert actions[0]['category'] == 'remediation'
+
+    def test_no_partial_match_in_compound_words(self):
+        """Action keywords should not match inside compound words"""
+        # "prefixed" contains "fixed" but should not match
+        actions = identify_actions("the variable was prefixed with env_")
+        fixed_actions = [a for a in actions if a['action'] == 'fixed']
+        assert len(fixed_actions) == 0
+
+
+class TestDomainFiltering:
+    """Regression tests: firstname.lastname should not be detected as domains."""
+
+    def test_person_name_not_domain(self):
+        """sarah.chen should NOT appear in domains"""
+        entities = extract_entities("sarah.chen: investigating the issue")
+        assert 'sarah.chen' not in entities['domains']
+
+    def test_multiple_person_names_filtered(self):
+        """All firstname.lastname patterns should be filtered"""
+        text = dedent("""
+            sarah.chen: checking logs
+            james.rodriguez: escalated
+            alex.kim: monitoring
+            david.park: deployed fix
+        """).strip()
+        entities = extract_entities(text)
+        for name in ['sarah.chen', 'james.rodriguez', 'alex.kim', 'david.park']:
+            assert name not in entities['domains']
+
+    def test_real_domain_still_detected(self):
+        """api.stripe.com should still be detected as a domain"""
+        entities = extract_entities("timeout from api.stripe.com")
+        assert 'api.stripe.com' in entities['domains']
+
+    def test_domain_with_known_tld(self):
+        """Domains with recognized TLDs should pass"""
+        entities = extract_entities("checking meet.company.com and github.io")
+        assert 'meet.company.com' in entities['domains']
+        assert 'github.io' in entities['domains']
+
+
+class TestServiceBroadening:
+    """Regression tests: service detection should catch infra compound names."""
+
+    def test_db_primary_detected(self):
+        """checkout-db-primary should be detected as a service"""
+        entities = extract_entities("elevated response times on checkout-db-primary")
+        assert 'checkout-db-primary' in entities['services']
+
+    def test_cache_service_detected(self):
+        """redis-cache-03 should be detected as a service"""
+        entities = extract_entities("redis-cache-03 is unresponsive")
+        assert 'redis-cache-03' in entities['services']
+
+    def test_processor_detected(self):
+        """order-processor should be detected as a service"""
+        entities = extract_entities("order-processor queue is backed up")
+        assert 'order-processor' in entities['services']
+
+    def test_non_service_compound_rejected(self):
+        """rolled-back should NOT be detected as a service"""
+        entities = extract_entities("we rolled-back the deploy")
+        assert 'rolled-back' not in entities['services']
+
+    def test_original_suffix_pattern_still_works(self):
+        """Single-word service names like authservice should still match"""
+        entities = extract_entities("authservice failed to start")
+        assert 'authservice' in entities['services']
+
+    def test_is_likely_service_helper(self):
+        """_is_likely_service should validate infra keywords"""
+        assert _is_likely_service('checkout-db-primary') is True
+        assert _is_likely_service('redis-cache-03') is True
+        assert _is_likely_service('order-processor') is True
+        assert _is_likely_service('rolled-back') is False
+        assert _is_likely_service('error-rate') is False
+
+
+class TestSeverityNegation:
+    """Regression tests: negated severity keywords should not count."""
+
+    def test_negated_down_not_critical(self):
+        """'back to normal' before 'down' should negate severity"""
+        result = detect_severity("CPU went back down to normal levels")
+        assert result['level'] != 'critical'
+
+    def test_resolved_outage_not_critical(self):
+        """'resolved' before 'outage' should negate severity"""
+        result = detect_severity("resolved the outage at 14:30")
+        assert 'outage' not in result['indicators']
+
+    def test_non_negated_still_detected(self):
+        """severity keywords without negation should still work"""
+        result = detect_severity("service is down, complete outage")
+        assert result['level'] == 'critical'
+        assert 'is down' in result['indicators']
+        assert 'outage' in result['indicators']
+
+    def test_fixed_issue_not_severe(self):
+        """'fixed' before severity keyword should negate"""
+        result = detect_severity("fixed the timeout issue yesterday")
+        # "timeout" should be negated by "fixed"
+        assert 'timeout' not in result['indicators']
+
+    def test_restored_service_not_critical(self):
+        """'restored' before 'down' should negate"""
+        result = detect_severity("restored the service that was down")
+        assert 'is down' not in result['indicators'] or result['level'] != 'critical'

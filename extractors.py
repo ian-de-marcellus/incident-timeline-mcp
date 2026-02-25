@@ -11,6 +11,8 @@ from patterns import (
     ACTION_KEYWORDS,
     SEVERITY_KEYWORDS,
     ENTITY_PATTERNS,
+    INFRA_KEYWORDS,
+    KNOWN_TLDS,
 )
 
 
@@ -133,8 +135,9 @@ def _is_likely_actor(actor: str) -> bool:
     - Time, Error, Status, Note
     - Domain names (ending in .com, .org, etc.)
     """
-    common_labels = ['time', 'error', 'status', 'note', 'warning', 
-                     'info', 'debug', 'system']
+    common_labels = ['time', 'error', 'status', 'note', 'warning',
+                     'info', 'debug', 'system',
+                     'channel', 'here', 'everyone']
     
     # Filter common labels
     if actor.lower() in common_labels:
@@ -177,10 +180,12 @@ def identify_actions(text: str) -> List[Dict[str, str]]:
         
         line_lower = line.lower()
         
-        # Check each category of actions
+        # Check each category of actions (word-boundary matching to avoid
+        # substring collisions like "scaled" matching inside "escalated")
         for category, keywords in ACTION_KEYWORDS.items():
             for keyword in keywords:
-                if keyword in line_lower:
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                if re.search(pattern, line_lower):
                     actions.append({
                         'action': keyword,
                         'category': category,
@@ -221,11 +226,16 @@ def extract_entities(text: str) -> Dict[str, List[str]]:
     
     text_lower = text.lower()
     
-    # Extract services
-    service_pattern = ENTITY_PATTERNS['service']
-    for match in re.finditer(service_pattern, text_lower):
+    # Extract services — two strategies:
+    # 1. Names ending in known suffixes (authservice, payment-api)
+    for match in re.finditer(ENTITY_PATTERNS['service_suffix'], text_lower):
         service = match.group(1)
         if service not in entities['services']:
+            entities['services'].append(service)
+    # 2. Compound names with infrastructure keywords (checkout-db-primary)
+    for match in re.finditer(ENTITY_PATTERNS['service_compound'], text_lower):
+        service = match.group(1)
+        if _is_likely_service(service) and service not in entities['services']:
             entities['services'].append(service)
     
     # Extract IPs
@@ -257,46 +267,84 @@ def _is_valid_ip(ip: str) -> bool:
         return False
 
 
+def _is_likely_service(name: str) -> bool:
+    """
+    Validate that a compound name is likely a service/infrastructure name.
+    Checks whether any segment of the name is a known infrastructure keyword.
+
+    Examples:
+        >>> _is_likely_service('checkout-db-primary')   # True (db, primary)
+        >>> _is_likely_service('redis-cache-03')         # True (cache)
+        >>> _is_likely_service('rolled-back')            # False
+    """
+    segments = re.split(r'[-_]', name)
+    return any(seg in INFRA_KEYWORDS for seg in segments)
+
+
 def _is_likely_domain(domain: str) -> bool:
     """
-    Basic domain validation to filter false positives.
-    
+    Domain validation to filter false positives.
+
     Filters out:
     - Very short domains (likely false positives)
-    - Domains that are just common words
+    - Domains with unrecognized TLDs (catches firstname.lastname like sarah.chen)
+    - Known test/placeholder domains
     """
     # Filter very short domains (e.g., "a.b")
     if len(domain) < 5:
         return False
-    
+
     # Filter common false positives
     false_positives = ['example.com', 'test.com', 'localhost.local']
     if domain in false_positives:
         return False
-    
+
+    # Check that the TLD is a known one (filters firstname.lastname patterns
+    # like "sarah.chen" where "chen" is not a recognized TLD)
+    tld = domain.rsplit('.', 1)[-1]
+    if tld not in KNOWN_TLDS:
+        return False
+
     return True
+
+def _is_negated_severity(line: str, keyword: str) -> bool:
+    """
+    Check if a severity keyword is negated by surrounding context.
+
+    Looks for negation/resolution words in the ~40 chars before the keyword
+    on the same line. This catches patterns like "no longer down",
+    "back to normal levels", "resolved the outage".
+    """
+    negation_context = ['no longer', 'resolved', 'fixed', 'restored',
+                        'back to normal', 'returned to', 'back down to']
+    keyword_idx = line.find(keyword)
+    if keyword_idx < 0:
+        return False
+    context_before = line[max(0, keyword_idx - 40):keyword_idx]
+    return any(neg in context_before for neg in negation_context)
+
 
 def detect_severity(text: str) -> Dict[str, any]:
     """
     Detect incident severity based on keywords in text.
-    
+
     Args:
         text: Raw incident text
-    
+
     Returns:
         Dict with:
         - level: overall severity (critical/high/medium/low/unknown)
         - confidence: how confident we are (based on # of indicators)
         - indicators: list of keywords that influenced the decision
-    
+
     Example:
         >>> text = "payment service is down, complete outage"
         >>> detect_severity(text)
-        {'level': 'critical', 'confidence': 'high', 
+        {'level': 'critical', 'confidence': 'high',
          'indicators': ['down', 'outage']}
     """
-    text_lower = text.lower()
-    
+    lines = text.lower().strip().split('\n')
+
     # Count indicators for each severity level
     severity_scores = {
         'critical': [],
@@ -304,11 +352,15 @@ def detect_severity(text: str) -> Dict[str, any]:
         'medium': [],
         'low': [],
     }
-    
+
     for level, keywords in SEVERITY_KEYWORDS.items():
         for keyword in keywords:
-            if keyword in text_lower:
-                severity_scores[level].append(keyword)
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            # Check each line; count keyword once if it appears non-negated
+            for line in lines:
+                if re.search(pattern, line) and not _is_negated_severity(line, keyword):
+                    severity_scores[level].append(keyword)
+                    break
     
     # Determine overall severity (highest level with indicators)
     if severity_scores['critical']:
