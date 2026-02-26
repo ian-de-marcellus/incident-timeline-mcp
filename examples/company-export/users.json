@@ -1,0 +1,9 @@
+[
+  { "id": "U01", "name": "sarah.eng", "real_name": "Sarah (Lead)" },
+  { "id": "U02", "name": "mike.junior", "real_name": "Mike (Junior Dev)" },
+  { "id": "U03", "name": "jim.product", "real_name": "Jim (Product Mgr)" },
+  { "id": "B01", "name": "birthdaybot", "real_name": "BirthdayBot", "is_bot": true },
+  { "id": "B02", "name": "giphy", "real_name": "Giphy", "is_bot": true },
+  { "id": "B03", "name": "datadog", "real_name": "Datadog", "is_bot": true },
+  { "id": "B04", "name": "jira", "real_name": "Jira", "is_bot": true }
+]

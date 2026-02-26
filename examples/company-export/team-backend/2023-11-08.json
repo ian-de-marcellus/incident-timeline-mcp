@@ -1,0 +1,39 @@
+[
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "user": "U_DATADOG",
+    "bot_id": "B03",
+    "username": "Datadog",
+    "text": "Monitor Warning",
+    "attachments": [
+      {
+        "color": "warning",
+        "title": "[Warn] Memory usage > 70%",
+        "text": "Service: image-processor-v2",
+        "ts": 1699430000
+      }
+    ],
+    "ts": "1699430000.000100"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Mike, can you look at that?",
+    "ts": "1699430100.000200"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "Yeah giving it a look.",
+    "ts": "1699430200.000300",
+    "thread_ts": "1699430100.000200"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "It dropped back down to 40%. Probably just a large batch job. False alarm.",
+    "ts": "1699430500.000400",
+    "thread_ts": "1699430100.000200"
+  }
+]

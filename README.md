@@ -1,4 +1,78 @@
-# Incident Timeline Extractor MCP Server
+# Incident Timeline MCP Server
+
+An MCP server that extracts structured incident analysis from raw communication logs. Feed it a Slack export or plaintext chat log and it produces a timeline classified by [NIST SP 800-61](https://csrc.nist.gov/pubs/sp/800-61/r2/final) incident response phases, severity assessment, responder metrics, and identified entities — using regex extraction where deterministic patterns suffice and Claude Haiku for semantic classification where they don't.
+
+## Example: Phishing Incident from Slack Export
+
+**Input:** A [Slack workspace export](examples/phishing-export/) from a security ops channel — 12 messages including bot alerts from Splunk, Okta, and Google Workspace.
+
+**Output:**
+
+```
+=== SUMMARY ===
+Severity: CRITICAL (confidence: medium)
+IR Phases: Detection (13:20-13:25) -> Analysis (13:21-13:26) -> Containment (13:22-13:26)
+           -> Eradication (13:27-13:30) -> Post-Incident (13:31)
+Duration: 11m
+Incident duration: 6m
+Time to contain: 2m
+Responders: 6
+Timeline: 10 events recorded
+Actions: 13 total
+  investigation: 4, communication: 3, remediation: 5, status: 1
+Entities: 175.45.176.10, secure-payroll-update.com
+
+=== TIMELINE ===
+  [detection]    13:20  sarah.helpdesk  Phishing reports from Sales — emails from admin@secure-payroll-update.com
+  [analysis]     13:21  mike.sec        Checking mail logs. Domain is external.
+  [containment]  13:22  mike.sec        Confirmed phishing. Blocking domain at gateway.
+  [detection]    13:25  Splunk          CRITICAL: Impossible travel — john.doe from Pyongsong, KP (175.45.176.10)
+  [containment]  13:25  alex.ciso       Compromised executive account. Full lockdown.
+  [containment]  13:26  Okta            john.doe suspended by mike.sec — Security Incident.
+  [analysis]     13:26  mike.sec        Session revoked. Password reset. Investigating lateral movement.
+  [eradication]  13:27  mike.sec        Purging phishing email from all 45 inboxes.
+  [eradication]  13:30  Google Wksp     Bulk deletion complete — 45 messages removed.
+  [post_incident] 13:31  alex.ciso      Starting post-mortem doc.
+
+=== METRICS ===
+  Events: 10 (2 noise messages filtered)    Responders: 6
+  Duration: 11m    Incident duration: 6m    Time to contain: 2m
+```
+
+The raw Slack export contained 12 messages including off-topic chatter. The tool filtered noise, resolved user IDs to display names, extracted bot alert content from attachments, and classified each event into an IR phase. Regex handled timestamps, entities, and action keywords; Haiku refined the phase classifications and flagged irrelevant messages.
+
+## How It Works
+
+```
+  Slack JSON / plaintext
+          │
+          ▼
+  ┌──────────────┐     ┌──────────────┐
+  │   Parsers    │────▶│  Extractors  │──── regex: timestamps, actors, actions,
+  │ slack.py     │     │ extractors.py│      entities, severity keywords
+  │ (plaintext)  │     │ patterns.py  │
+  └──────────────┘     └──────┬───────┘
+                              │
+                     low confidence?
+                              │
+                              ▼
+                    ┌──────────────────┐
+                    │  LLM Enrichment  │──── Haiku: phase classification,
+                    │ llm/enrichment.py│      severity, actions, entity
+                    └──────┬───────────┘      disambiguation
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │   Analysis   │──── IR phase mapping, severity timeline,
+                    │              │      incident metrics (TTC, TTR)
+                    └──────────────┘
+```
+
+**Regex first, LLM where needed.** Deterministic extraction handles timestamps, actor resolution, entity detection, and keyword matching. Claude Haiku runs only on low-confidence classifications — phase assignment, severity in context, and entity disambiguation (is `sarah.chen` a person or a domain?). Because only a handful of targeted API calls are made per run (not the full document), enrichment currently costs roughly $0.01 for a short incident — though this isn't guaranteed and will vary with input size. The tool works without an API key; LLM enrichment improves accuracy but isn't required.
+
+**NIST SP 800-61 framework.** Events are classified into Detection, Analysis, Containment, Eradication, Recovery, and Post-Incident phases. Regex assigns initial phases based on keyword signals and position; Haiku refines low-confidence assignments using semantic context.
+
+## Quick Start
 
 > **Note:** This is a small learning project built to explore MCP server development, not production-ready incident management software.
 
@@ -44,24 +118,18 @@ The server extracts:
 
 ## Installation
 ```bash
-# Clone the repository
 git clone https://github.com/ian-de-marcellus/incident-timeline-mcp
 cd incident-timeline-mcp
-
-# Set up virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Run tests
-pytest tests/ -v
+pytest tests/ -q   # 564 tests, ~4s
 ```
 
-## Configuration
+### Connect to Claude Desktop
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
@@ -73,185 +141,88 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-Restart Claude Desktop, and the tools will be available!
+### Try It
 
-## Available Tools
+Once connected, ask Claude:
 
-### 1. `extract_timeline`
-Extracts chronological events with timestamps and actors.
+> Analyze the phishing incident resource.
 
-**Input:** Incident text  
-**Output:** List of events with `time`, `text`, `actor`
+Claude will discover the `incident://examples/phishing-export` resource and call `analyze_resource` to run the full pipeline — parsing the Slack export, resolving user IDs, filtering noise, classifying IR phases, and returning a structured incident report. No copy-pasting required.
 
-### 2. `identify_actions`
-Identifies and categorizes actions taken during response.
+All 7 sample resources work the same way. For example:
 
-**Categories:** investigation, remediation, communication, status  
-**Output:** List with `action`, `category`, `context`
+> Analyze the multi-day company export.
 
-### 3. `extract_entities`
-Finds systems, services, and infrastructure mentioned.
+> What's the severity of the simple incident?
 
-**Output:** Dict with `services`, `ips`, `domains` lists
+### Optional: Enable LLM Enrichment
 
-### 4. `detect_severity`
-Assesses incident severity from keywords and context.
+Create a `.env` file in the project root:
 
-**Output:** `level` (critical/high/medium/low), `confidence`, `indicators`
-
-### 5. `generate_summary`
-Comprehensive report combining all extractors.
-
-**Output:** All of the above plus formatted summary text
-
-## Technical Details
-
-### Architecture
 ```
-patterns.py       → Regex patterns and keyword lists
-extractors.py     → Core extraction logic with context filtering
-server.py         → MCP server exposing tools to Claude
-tests/            → Comprehensive test suite
+ANTHROPIC_API_KEY=sk-ant-...
+LLM_ENRICHMENT=regular   # none | low | regular
 ```
 
-### Key Design Decisions
+Without this, the tool runs regex-only — still functional, just lower accuracy on phase classification.
 
-**Pattern Extraction with Context Filtering**
-- Regex patterns match broadly (e.g., any `HH:MM` format)
-- Context analysis filters false positives (e.g., "ratio of 3:45")
-- Balances recall vs. precision for real-world logs
+## MCP Interface
 
-**Timestamp Support**
-- ISO 8601: `2024-10-15T14:23:15Z`
-- Full datetime: `2024-10-15 14:23:45`
-- Simple time: `14:23` or `14:23:45`
+### Tools
 
-**Actor Recognition**
-- `@mentions` (Slack/Discord style)
-- `Name:` format (chat logs)
-- `firstname.lastname:` format (common in engineering teams)
-- Filters common false positives (Error:, Status:, domain names)
+| Tool | Input | Output |
+|------|-------|--------|
+| `analyze_resource` | Resource URI | Reads a sample incident resource and runs the full pipeline automatically |
+| `generate_summary` | Incident text | Full analysis: timeline, actions, entities, severity, IR phases, metrics |
+| `parse_slack_export` | Slack JSON (messages + optional users) | Same as above, plus Slack metadata (noise filtered, thread count) |
+| `extract_timeline` | Incident text | Chronological events with timestamps, actors, IR phases |
+| `identify_actions` | Incident text | Categorized actions (investigation, remediation, communication, status) |
+| `extract_entities` | Incident text | Services, IP addresses, domains |
+| `detect_severity` | Incident text | Severity level, confidence, indicators |
+| `map_to_framework` | Incident text | NIST 800-61 phase mapping with metrics |
 
-**Severity Detection**
-- Keyword-based scoring across 4 levels
-- Confidence based on indicator count
-- Flexible matching: "error rate", "jumped", "spike"
+### Resources
 
-### Testing Approach
+The server exposes sample incidents that Claude can discover and read:
 
-Comprehensive test coverage using pytest:
-- **Pattern tests**: Validates regex behavior, documents known limitations
-- **Extractor tests**: Unit tests for each function + integration tests
-- **Edge cases**: Empty input, whitespace, false positives, mixed formats
+| URI | Description |
+|-----|-------------|
+| `incident://examples/simple` | Payment-service incident, plaintext (11 events) |
+| `incident://examples/detailed` | Database performance incident, plaintext (30 events, 5 responders) |
+| `incident://examples/slack-export` | Slack workspace export with bot messages (18 messages) |
+| `incident://examples/phishing-export` | Phishing attack with executive account compromise (12 messages) |
+| `incident://examples/coinflux-export` | Database migration locks causing API latency (12 messages) |
+| `incident://examples/company-export` | Multi-day memory leak incident across 5 days (24 messages) |
+| `incident://examples/security-export` | DDoS escalating to account compromise, cross-year (8 messages) |
 
-Known limitations documented with `@pytest.mark.xfail`:
-- Names with particles (von, de, van) not captured
-- Ambiguous patterns require context filtering
-- Some severity indicators may be missed
+## Project Structure
 
-```bash
-# Run all tests
-pytest tests/ -v
-
-# Run specific test file
-pytest tests/test_extractors.py -v
-
-# See test coverage
-pytest tests/ -v --cov=extractors --cov=patterns
-```
-
-## Example Incident Formats
-
-The extractor handles various log formats:
-
-**Simple format:**
-```
-@sarah 14:23: Issue detected
-@mike 14:25: Fix deployed
-```
-
-**ISO 8601 timestamps:**
-```
-2024-10-15T14:23:15Z sarah.chen: Database CPU at 94%
-2024-10-15T14:25:03Z mike.jones: Rolling back deploy
-```
-
-**Mixed formats:**
-```
-System: Health check failed at 14:29
-@alice 14:30: Manually restarted service
-2024-10-15T14:35:00Z Status: All services responding
-```
-
-## Development
-
-### Running Locally
-```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Run tests with verbose output
-pytest tests/ -v
-
-# Test a specific extractor
-python -c "
-from extractors import extract_timeline
-text = '@sarah 14:23: Test event'
-print(extract_timeline(text))
-"
-
-# Run the MCP server directly (for debugging)
-python server.py
-```
-
-### Project Structure
 ```
 incident-timeline-mcp/
-├── extractors.py           # Core extraction functions
-├── patterns.py             # Regex patterns and keywords
-├── server.py               # MCP server implementation
-├── requirements.txt        # Python dependencies
-├── tests/
-│   ├── test_patterns.py    # Pattern validation tests
-│   ├── test_extractors.py  # Extractor unit/integration tests
-│   └── test_server.py      # Server smoke tests
-└── examples/
-    ├── sample_incident.txt # Simple example
-    └── incident_response_simple.txt # Realistic example
+├── server.py               # MCP server — tools + resources
+├── extractors.py           # Core pipeline — extraction, analysis, formatting
+├── patterns.py             # Regex patterns and keyword lists
+├── models.py               # Data models (AnalysisState, IncidentReport, etc.)
+├── config.py               # Settings (API key, enrichment level)
+├── parsers/
+│   └── slack.py            # Slack export parser (user resolution, mrkdwn, attachments)
+├── llm/
+│   ├── enrichment.py       # Haiku integration — phase, severity, action, entity passes
+│   └── prompts.py          # Tool schemas and system prompts for each enrichment pass
+├── tests/                  # 564 tests — patterns, extractors, LLM (mocked), server, e2e
+├── examples/               # Sample incidents (plaintext + Slack exports)
+└── docs/
+    └── architecture-v2.md  # Detailed architecture and design decisions
 ```
 
-## Future Enhancements
+## Design Decisions
 
-Potential improvements for v2:
-- [ ] Automatic timeline sorting by timestamp
-- [ ] Duration calculation for incidents
-- [ ] Actor mention resolution (map @handles to full names)
-- [ ] Machine learning for severity classification
-- [ ] Support for additional log formats (JSON, structured logs)
-- [ ] Entity relationship mapping (which actor worked on which service)
-- [ ] Leverage Claude integration for more flexible analysis
-- [ ] Export to incident report templates
+See [`docs/architecture-v2.md`](docs/architecture-v2.md) for the full architecture document. Key choices:
 
-## Why This Project?
-
-A hands-on learning project built in an evening to explore MCP server development. While the problem (extracting structure from incident logs) is real, this is **intentionally scoped as a portfolio piece** rather than production software.
-
-**Demonstrates:**
-- **MCP integration**: Practical AI tooling with Claude
-- **Clean architecture**: Separation of patterns, logic, and server
-- **Test-driven development**: Comprehensive test suite with documented limitations
-- **Real-world problem**: Incident response timeline analysis is genuine IR work
-- **Production thinking**: Context filtering, error handling, edge case management
-
-**Intentionally omitted** (would be required for production):
-- Authentication and authorization
-- Database persistence
-- Real-time log streaming
-- Slack/PagerDuty/Jira integrations
-- Multi-tenant support
-- Compliance and audit logging
-
-The goal was learning MCP, demonstrating testing practices, and building something functional in a constrained timeframe—not competing with established incident management platforms.
+- **Dependency injection** — LLM client is constructed at the boundary (`server.py`, `generate_summary`), passed through the pipeline. Tests run fast with no API calls.
+- **Graceful degradation** — No API key? Regex-only results. API call fails? That enrichment pass is skipped, others continue.
+- **Slack-native parsing** — User ID resolution, bot message attribution, attachment text extraction, mrkdwn cleanup, noise filtering, multi-day export support.
+- **Hybrid confidence model** — Each phase classification carries a confidence level (`high`/`medium`/`low`) and source (`regex`/`llm`). Low-confidence regex assignments are candidates for LLM refinement.
 
 ## License
 

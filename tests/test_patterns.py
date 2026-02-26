@@ -9,7 +9,7 @@ from patterns import TIMESTAMP_PATTERNS
 
 class TestSimpleTimePattern:
     """Tests for TIMESTAMP_PATTERNS['simple_time'] - HH:MM format"""
-    
+
     # Happy path
     @pytest.mark.parametrize("text,expected_match", [
         ("Error occurred at 14:23 in the logs", "14:23"),
@@ -23,7 +23,7 @@ class TestSimpleTimePattern:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group() == expected_match
-    
+
     # Edge cases - should NOT match
     @pytest.mark.parametrize("text", [
         "server crashed on port 8080",
@@ -34,7 +34,7 @@ class TestSimpleTimePattern:
         """Port numbers should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     @pytest.mark.parametrize("text", [
         "ratio is 5:1",
         "deployed v2:30 to production",
@@ -43,7 +43,7 @@ class TestSimpleTimePattern:
         """Non-time patterns should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     @pytest.mark.parametrize("text", [
         "Error code: 123:456",
         "EXIT_CODE:12:34",
@@ -52,7 +52,7 @@ class TestSimpleTimePattern:
         """Error codes should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     @pytest.mark.parametrize("text", [
         "ticket ID:2468",
         "ref:12:34:56:78",
@@ -61,7 +61,7 @@ class TestSimpleTimePattern:
         """IDs and references should not match"""
         pattern = TIMESTAMP_PATTERNS['simple_time']
         assert re.search(pattern, text) is None
-    
+
     # Known limitations
     @pytest.mark.xfail(reason="Ambiguous - looks like valid time, filtered in extractor")
     @pytest.mark.parametrize("text", [
@@ -77,7 +77,7 @@ class TestSimpleTimePattern:
 
 class TestFullDatetimePattern:
     """Tests for TIMESTAMP_PATTERNS['full_datetime'] - YYYY-MM-DD HH:MM:SS format"""
-    
+
     # Happy path
     @pytest.mark.parametrize("text", [
         "Incident started 2024-01-15 14:23 UTC",
@@ -90,7 +90,7 @@ class TestFullDatetimePattern:
         match = re.search(pattern, text)
         assert match is not None
         assert "202" in match.group()  # Year prefix
-    
+
     # Edge cases - should NOT match
     @pytest.mark.parametrize("text", [
         "2024-01-15",      # Date only
@@ -106,7 +106,7 @@ class TestFullDatetimePattern:
 
 class TestTimeWithSecondsPattern:
     """Tests for TIMESTAMP_PATTERNS['time_with_seconds'] - HH:MM:SS format"""
-    
+
     # Happy path
     @pytest.mark.parametrize("text,expected_match", [
         ("Deploy started at 14:23:45", "14:23:45"),
@@ -119,7 +119,7 @@ class TestTimeWithSecondsPattern:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group() == expected_match
-    
+
     # Edge cases - should NOT match
     @pytest.mark.parametrize("text", [
         "12:34:56:78",  # Too many segments
@@ -133,7 +133,7 @@ class TestTimeWithSecondsPattern:
 
 class TestISO8601Pattern:
     """Tests for TIMESTAMP_PATTERNS['iso8601'] - ISO 8601 format"""
-    
+
     @pytest.mark.parametrize("text,expected_time", [
         ("2024-10-15T14:23:15Z sarah.chen: message", "2024-10-15T14:23:15Z"),
         ("logged at 2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
@@ -148,7 +148,7 @@ class TestISO8601Pattern:
 
 class TestActorPatterns:
     """Tests for ACTOR_PATTERNS - @mentions and names"""
-    
+
     # Test @mention pattern
     @pytest.mark.parametrize("text,expected_actor", [
         ("@sarah investigating the issue", "sarah"),
@@ -163,20 +163,25 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_actor
-    
+
     @pytest.mark.parametrize("text", [
         "email@example.com has @ but shouldn't match",
         "cost is $50@item",
         "@",
         "sentence with @ symbol alone",
     ])
-    def test_mentions_no_false_positives(self, text):
-        """Should handle @ in other contexts"""
+    def test_mentions_pattern_compiles_and_runs(self, text):
+        """Pattern runs without error on edge-case inputs.
+
+        The mention pattern (@username) may partially match emails
+        or other @-containing strings — that's acceptable because
+        the extractor layer handles disambiguation.
+        """
+        import re
         from patterns import ACTOR_PATTERNS
-        pattern = ACTOR_PATTERNS['mention']
-        # Email might partially match, but won't match full email
-        # This is acceptable behavior
-    
+        # Verify the pattern doesn't crash on edge cases
+        re.search(ACTOR_PATTERNS['mention'], text)
+
     # Test Name: pattern
     @pytest.mark.parametrize("text,expected_name", [
         ("Sarah: investigating the database", "Sarah"),
@@ -191,7 +196,7 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_name
-    
+
     @pytest.mark.parametrize("text", [
         "lowercase: should not match",
         "mixedCase: also wrong",
@@ -214,16 +219,16 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_actor
-    
+
     def test_dotted_names_not_domains(self):
         """firstname.lastname: should be actor, not domain"""
         from patterns import ACTOR_PATTERNS
-        
+
         # This should match as an actor
         text = "sarah.chen: investigating"
         actor_pattern = ACTOR_PATTERNS['name_with_dot']
         assert re.search(actor_pattern, text) is not None
-        
+
         # But actual domains shouldn't match this pattern
         assert re.search(actor_pattern, "api.example.com returned") is None
         assert re.search(actor_pattern, "timeout from service.uber.com") is None
@@ -241,7 +246,7 @@ class TestActorPatterns:
         match = re.search(pattern, text)
         if match:
             assert match.group(1) == expected_name
-    
+
     @pytest.mark.xfail(reason="Common labels look like names, filtered in extractor")
     @pytest.mark.parametrize("text", [
         "Time: 14:23",
@@ -257,7 +262,7 @@ class TestActorPatterns:
 
 class TestActionKeywords:
     """Tests for ACTION_KEYWORDS dict"""
-    
+
     def test_has_all_categories(self):
         """Should have all action categories"""
         from patterns import ACTION_KEYWORDS
@@ -265,7 +270,7 @@ class TestActionKeywords:
         assert 'remediation' in ACTION_KEYWORDS
         assert 'communication' in ACTION_KEYWORDS
         assert 'status' in ACTION_KEYWORDS
-    
+
     def test_contains_investigation_actions(self):
         """Should include common investigation verbs in both tenses"""
         from patterns import ACTION_KEYWORDS
@@ -277,7 +282,7 @@ class TestActionKeywords:
         # Past tense
         assert 'checked' in investigation
         assert 'analyzed' in investigation
-    
+
     def test_contains_remediation_actions(self):
         """Should include common remediation verbs"""
         from patterns import ACTION_KEYWORDS
@@ -285,7 +290,32 @@ class TestActionKeywords:
         assert 'deployed' in remediation
         assert 'rolled back' in remediation
         assert 'restarted' in remediation
-    
+
+    def test_contains_crypto_actions(self):
+        """Should include crypto/fintech-specific action keywords"""
+        from patterns import ACTION_KEYWORDS
+        remediation = ACTION_KEYWORDS['remediation']
+        assert 'halted trading' in remediation
+        assert 'paused withdrawals' in remediation
+        assert 'circuit breaker' in remediation
+        investigation = ACTION_KEYWORDS['investigation']
+        assert 'tracing transaction' in investigation
+        assert 'reviewing ledger' in investigation
+
+    def test_contains_platform_actions(self):
+        """Should include platform/ops-specific action keywords"""
+        from patterns import ACTION_KEYWORDS
+        remediation = ACTION_KEYWORDS['remediation']
+        assert 'rerouting' in remediation
+        assert 'load shedding' in remediation
+        assert 'rate limiting' in remediation
+        assert 'throttling' in remediation
+        assert 'failover' in remediation
+        assert 'draining' in remediation
+        investigation = ACTION_KEYWORDS['investigation']
+        assert 'tracing requests' in investigation
+        assert 'profiling' in investigation
+
     def test_all_lowercase(self):
         """All keywords should be lowercase for case-insensitive matching"""
         from patterns import ACTION_KEYWORDS
@@ -296,7 +326,7 @@ class TestActionKeywords:
 
 class TestSeverityKeywords:
     """Tests for SEVERITY_KEYWORDS dict"""
-    
+
     def test_has_all_severity_levels(self):
         """Should have keywords for all severity levels"""
         from patterns import SEVERITY_KEYWORDS
@@ -304,15 +334,45 @@ class TestSeverityKeywords:
         assert 'high' in SEVERITY_KEYWORDS
         assert 'medium' in SEVERITY_KEYWORDS
         assert 'low' in SEVERITY_KEYWORDS
-    
+
     def test_critical_keywords(self):
         """Critical level should include strong indicators"""
         from patterns import SEVERITY_KEYWORDS
         critical = SEVERITY_KEYWORDS['critical']
-        assert 'down' in critical
+        assert 'is down' in critical
         assert 'outage' in critical
         assert 'critical' in critical
-    
+
+    def test_crypto_severity_keywords(self):
+        """Should include crypto/fintech-specific severity keywords"""
+        from patterns import SEVERITY_KEYWORDS
+        critical = SEVERITY_KEYWORDS['critical']
+        assert 'funds at risk' in critical
+        assert 'wallet compromised' in critical
+        assert 'exploit' in critical
+        high = SEVERITY_KEYWORDS['high']
+        assert 'liquidation' in high
+        assert 'slippage' in high
+        assert 'oracle failure' in high
+        medium = SEVERITY_KEYWORDS['medium']
+        assert 'chain reorg' in medium
+        assert 'delayed settlement' in medium
+
+    def test_platform_severity_keywords(self):
+        """Should include marketplace/platform-specific severity keywords"""
+        from patterns import SEVERITY_KEYWORDS
+        critical = SEVERITY_KEYWORDS['critical']
+        assert 'dispatch down' in critical
+        assert 'matching failed' in critical
+        assert 'trips affected' in critical
+        high = SEVERITY_KEYWORDS['high']
+        assert 'dispatch latency' in high
+        assert 'routing errors' in high
+        assert 'demand spike' in high
+        medium = SEVERITY_KEYWORDS['medium']
+        assert 'eta inaccurate' in medium
+        assert 'delayed dispatch' in medium
+
     def test_all_lowercase(self):
         """All severity keywords should be lowercase"""
         from patterns import SEVERITY_KEYWORDS
@@ -324,7 +384,7 @@ class TestSeverityKeywords:
 
 class TestEntityPatterns:
     """Tests for ENTITY_PATTERNS - services, IPs, domains"""
-    
+
     @pytest.mark.parametrize("text,expected_service", [
         ("payment-service is down", "payment-service"),
         ("user_service restarted", "user_service"),
@@ -334,11 +394,14 @@ class TestEntityPatterns:
     def test_matches_service_names(self, text, expected_service):
         """Should match common service name patterns"""
         from patterns import ENTITY_PATTERNS
-        pattern = ENTITY_PATTERNS['service']
-        match = re.search(pattern, text.lower())  # Case-insensitive
+        text_lower = text.lower()
+        # Try suffix pattern first, then compound pattern
+        match = re.search(ENTITY_PATTERNS['service_suffix'], text_lower)
+        if not match:
+            match = re.search(ENTITY_PATTERNS['service_compound'], text_lower)
         assert match is not None
         assert match.group(1) == expected_service
-    
+
     @pytest.mark.parametrize("text,expected_ip", [
         ("server at 192.168.1.1 is down", "192.168.1.1"),
         ("connecting to 10.0.0.1", "10.0.0.1"),
@@ -351,7 +414,7 @@ class TestEntityPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_ip
-    
+
     @pytest.mark.parametrize("text,expected_domain", [
         ("api.example.com returned 500", "api.example.com"),
         ("timeout from service.uber.com", "service.uber.com"),
@@ -364,7 +427,7 @@ class TestEntityPatterns:
         match = re.search(pattern, text)
         assert match is not None
         assert match.group(1) == expected_domain
-    
+
     @pytest.mark.xfail(reason="IP validation (0-255 per octet) done in extractor, not regex")
     @pytest.mark.parametrize("text", [
         "999.999.999.999",
@@ -375,6 +438,166 @@ class TestEntityPatterns:
         from patterns import ENTITY_PATTERNS
         pattern = ENTITY_PATTERNS['ip']
         assert re.search(pattern, text) is None
+
+
+class TestDomainInfraKeywords:
+    """Tests for domain-specific additions to INFRA_KEYWORDS"""
+
+    def test_crypto_infra_keywords_present(self):
+        """INFRA_KEYWORDS should include crypto infrastructure terms"""
+        from patterns import INFRA_KEYWORDS
+        for keyword in ['exchange', 'ledger', 'vault', 'wallet',
+                        'bridge', 'oracle', 'chain', 'custody', 'engine', 'book']:
+            assert keyword in INFRA_KEYWORDS, f"'{keyword}' missing from INFRA_KEYWORDS"
+
+    def test_platform_infra_keywords_present(self):
+        """INFRA_KEYWORDS should include platform infrastructure terms"""
+        from patterns import INFRA_KEYWORDS
+        for keyword in ['dispatch', 'routing', 'matcher', 'pricing',
+                        'fulfillment', 'geofence', 'marketplace',
+                        'shard', 'balancer', 'ingress', 'scheduler']:
+            assert keyword in INFRA_KEYWORDS, f"'{keyword}' missing from INFRA_KEYWORDS"
+
+
+# ============================================================
+# Phase 3 — IR phase keyword validation
+# ============================================================
+
+class TestIRPhaseKeywords:
+    """Tests for IR_PHASE_KEYWORDS dict"""
+
+    def test_has_all_nist_phases(self):
+        """Should have all 6 NIST SP 800-61 phases"""
+        from patterns import IR_PHASE_KEYWORDS
+        expected = ['detection', 'analysis', 'containment',
+                    'eradication', 'recovery', 'post_incident']
+        for phase in expected:
+            assert phase in IR_PHASE_KEYWORDS, f"'{phase}' missing from IR_PHASE_KEYWORDS"
+
+    def test_all_keywords_lowercase(self):
+        """All IR phase keywords should be lowercase"""
+        from patterns import IR_PHASE_KEYWORDS
+        for phase, keywords in IR_PHASE_KEYWORDS.items():
+            for keyword in keywords:
+                assert keyword == keyword.lower(), \
+                    f"'{keyword}' in {phase} is not lowercase"
+
+    def test_detection_keywords(self):
+        """Detection phase should include alert and declaration keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        detection = IR_PHASE_KEYWORDS['detection']
+        assert 'alert fired' in detection
+        assert 'detected' in detection
+        assert 'elevated' in detection
+        assert 'declared' in detection
+        assert 'sev-1' in detection
+
+    def test_analysis_keywords(self):
+        """Analysis phase should include investigation keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        analysis = IR_PHASE_KEYWORDS['analysis']
+        assert 'investigating' in analysis
+        assert 'root cause' in analysis
+        assert 'debugging' in analysis
+
+    def test_containment_keywords(self):
+        """Containment phase should include rollback and isolation keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        containment = IR_PHASE_KEYWORDS['containment']
+        assert 'rolling back' in containment
+        assert 'rollback' in containment
+        assert 'rate limiting' in containment
+        assert 'circuit breaker' in containment
+
+    def test_eradication_keywords(self):
+        """Eradication phase should include fix and patch keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        eradication = IR_PHASE_KEYWORDS['eradication']
+        assert 'fix deployed' in eradication
+        assert 'patched' in eradication
+        assert 'pr ready' in eradication
+
+    def test_recovery_keywords(self):
+        """Recovery phase should include restoration and stability keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        recovery = IR_PHASE_KEYWORDS['recovery']
+        assert 'restored' in recovery
+        assert 'back to normal' in recovery
+        assert 'metrics stable' in recovery
+        assert 'recovered' in recovery
+        assert 'monitor recovered' in recovery
+
+    def test_post_incident_keywords(self):
+        """Post-incident phase should include review, report, and resolution keywords"""
+        from patterns import IR_PHASE_KEYWORDS
+        post = IR_PHASE_KEYWORDS['post_incident']
+        assert 'postmortem' in post
+        assert 'post-mortem' in post
+        assert 'lessons learned' in post
+        assert 'incident report' in post
+        assert 'resolved' in post
+        assert 'incident resolved' in post
+
+
+class TestDiscussionIndicators:
+    """Tests for DISCUSSION_INDICATORS list"""
+
+    def test_indicators_present(self):
+        """Should include common discussion markers"""
+        from patterns import DISCUSSION_INDICATORS
+        assert 'i vote' in DISCUSSION_INDICATORS
+        assert 'should we' in DISCUSSION_INDICATORS
+        assert "let's" in DISCUSSION_INDICATORS
+        assert 'what are our' in DISCUSSION_INDICATORS
+
+    def test_all_lowercase(self):
+        """All discussion indicators should be lowercase"""
+        from patterns import DISCUSSION_INDICATORS
+        for ind in DISCUSSION_INDICATORS:
+            assert ind == ind.lower(), f"'{ind}' is not lowercase"
+
+
+class TestNoiseFilterPatterns:
+    """Tests for noise filtering pattern constants."""
+
+    def test_noise_bots_all_lowercase(self):
+        from patterns import NOISE_BOT_NAMES
+        for name in NOISE_BOT_NAMES:
+            assert name == name.lower(), f"'{name}' is not lowercase"
+
+    def test_ops_bots_all_lowercase(self):
+        from patterns import OPS_BOT_NAMES
+        for name in OPS_BOT_NAMES:
+            assert name == name.lower(), f"'{name}' is not lowercase"
+
+    def test_noise_phrases_all_lowercase(self):
+        from patterns import NOISE_PHRASES
+        for phrase in NOISE_PHRASES:
+            assert phrase == phrase.lower(), f"'{phrase}' is not lowercase"
+
+    def test_noise_and_ops_bots_no_overlap(self):
+        from patterns import NOISE_BOT_NAMES, OPS_BOT_NAMES
+        overlap = NOISE_BOT_NAMES & OPS_BOT_NAMES
+        assert not overlap, f"Overlap between noise and ops bots: {overlap}"
+
+    def test_known_noise_bots_present(self):
+        from patterns import NOISE_BOT_NAMES
+        assert 'birthdaybot' in NOISE_BOT_NAMES
+        assert 'giphy' in NOISE_BOT_NAMES
+
+    def test_known_ops_bots_present(self):
+        from patterns import OPS_BOT_NAMES
+        assert 'datadog' in OPS_BOT_NAMES
+        assert 'pagerduty' in OPS_BOT_NAMES
+        assert 'jira' in OPS_BOT_NAMES
+
+    def test_detection_monitoring_keywords(self):
+        """Detection phase should include monitoring alert patterns."""
+        from patterns import IR_PHASE_KEYWORDS
+        detection = IR_PHASE_KEYWORDS['detection']
+        assert 'monitor triggered' in detection
+        assert 'monitor warning' in detection
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

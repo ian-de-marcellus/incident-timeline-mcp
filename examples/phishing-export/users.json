@@ -1,0 +1,44 @@
+[
+  {
+    "id": "U01",
+    "name": "sarah.helpdesk",
+    "real_name": "Sarah (IT Support)",
+    "is_bot": false
+  },
+  {
+    "id": "U02",
+    "name": "mike.sec",
+    "real_name": "Mike (Security Analyst)",
+    "is_bot": false
+  },
+  {
+    "id": "U03",
+    "name": "alex.ciso",
+    "real_name": "Alex (CISO)",
+    "is_bot": false
+  },
+  {
+    "id": "U04",
+    "name": "john.doe",
+    "real_name": "John Doe (VP Sales)",
+    "is_bot": false
+  },
+  {
+    "id": "B01",
+    "name": "splunk",
+    "real_name": "Splunk",
+    "is_bot": true
+  },
+  {
+    "id": "B02",
+    "name": "okta",
+    "real_name": "Okta",
+    "is_bot": true
+  },
+  {
+    "id": "B03",
+    "name": "google",
+    "real_name": "Google Workspace",
+    "is_bot": true
+  }
+]

@@ -1,0 +1,7 @@
+[
+  {
+    "id": "C_SECOPS",
+    "name": "sec-ops",
+    "members": ["U01", "U02", "U03", "U04"]
+  }
+]

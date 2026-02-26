@@ -1,0 +1,56 @@
+[
+  {
+    "type": "message",
+    "user": "U03",
+    "text": "Customers are saying image uploads are failing.",
+    "ts": "1699510000.000100"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "username": "Datadog",
+    "text": "Monitor Triggered",
+    "attachments": [{ "color": "danger", "title": "[CRITICAL] Memory > 95%", "text": "Service: image-processor-v2" }],
+    "ts": "1699510060.000200"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "username": "Datadog",
+    "text": "Monitor Triggered",
+    "attachments": [{ "color": "danger", "title": "[CRITICAL] Pod Restart Loop", "text": "CrashLoopBackOff" }],
+    "ts": "1699510065.000300"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "<!channel> We are down. Mike, get on Zoom.",
+    "ts": "1699510100.000400"
+  },
+  {
+    "type": "message",
+    "user": "U02",
+    "text": "On it. It's the same memory issue from yesterday.",
+    "ts": "1699510200.000500"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Increasing memory limits temp fix.",
+    "ts": "1699510500.000600"
+  },
+  {
+    "type": "message",
+    "subtype": "bot_message",
+    "username": "Datadog",
+    "text": "Monitor Recovered",
+    "attachments": [{ "color": "good", "title": "[Recovered] Memory > 95%" }],
+    "ts": "1699510800.000700"
+  },
+  {
+    "type": "message",
+    "user": "U01",
+    "text": "Okay, we are stable, but we need a real fix tomorrow.",
+    "ts": "1699511000.000800"
+  }
+]

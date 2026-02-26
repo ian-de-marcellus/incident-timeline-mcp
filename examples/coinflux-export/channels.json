@@ -1,0 +1,8 @@
+[
+  {
+    "id": "C_INCIDENTS",
+    "name": "incidents-sev1",
+    "is_archived": false,
+    "members": ["U_ALICE", "U_BOB", "U_CAROL"]
+  }
+]

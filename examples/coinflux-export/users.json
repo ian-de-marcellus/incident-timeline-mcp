@@ -1,0 +1,38 @@
+[
+  {
+    "id": "U_ALICE",
+    "name": "alice.sec",
+    "real_name": "Alice (Security)",
+    "is_bot": false
+  },
+  {
+    "id": "U_BOB",
+    "name": "bob.sre",
+    "real_name": "Bob (SRE)",
+    "is_bot": false
+  },
+  {
+    "id": "U_CAROL",
+    "name": "carol.dev",
+    "real_name": "Carol (Backend)",
+    "is_bot": false
+  },
+  {
+    "id": "B_DATADOG",
+    "name": "datadog",
+    "real_name": "Datadog",
+    "is_bot": true
+  },
+  {
+    "id": "B_PAGERDUTY",
+    "name": "pagerduty",
+    "real_name": "PagerDuty",
+    "is_bot": true
+  },
+  {
+    "id": "B_GITHUB",
+    "name": "github",
+    "real_name": "GitHub",
+    "is_bot": true
+  }
+]
