@@ -74,6 +74,49 @@ The raw Slack export contained 12 messages including off-topic chatter. The tool
 
 ## Quick Start
 
+> **Note:** This is a small learning project built to explore MCP server development, not production-ready incident management software.
+
+A simple MCP (Model Context Protocol) server that extracts structured information from incident response logs. Built to help analyze chat-based incident communications (Slack, Discord, etc.) by automatically identifying timelines, actions, severity, and involved systems.
+
+## What It Does
+
+Transforms unstructured incident logs into structured data:
+```
+@sarah 14:23: payment-service down, error rate at 15%
+@mike 14:25: rolling back deploy
+@sarah 14:30: service restored
+```
+
+**Extracts:**
+- **Timeline**: Chronological events with timestamps and actors
+- **Actions**: Categorized response actions (investigation, remediation, communication)
+- **Entities**: Services, IP addresses, domains involved
+- **Severity**: Incident severity level with confidence scoring
+
+## Demo
+
+**See it in action:** [Full conversation with Claude using the MCP tools →](https://claude.ai/share/ef47cf8c-48ef-4cee-a1cd-958b00aa2ce4)
+
+### Example: Analyzing a Real Incident
+
+**Input:** [`examples/incident_response_simple.txt`](examples/incident_response_example.txt) - Database performance incident with ISO 8601 timestamps
+
+**Output:** [`examples/incident_response_output.json`](examples/incident_response_output.json) - Complete structured extraction
+
+The server extracts:
+- **29 timeline events** over 2+ hours (14:23 → 16:45)
+- **8 categorized actions** (investigation, remediation, communication, status)
+- **Entities involved:** checkout-service, GitHub.com, company.atlassian.net
+- **Severity assessment:** Critical level with indicator analysis
+
+**Key screenshots:**
+![Timeline events extracted with timestamps and actors](screenshots/timeline-events.png)
+*Timeline extraction with timestamps and actor detection*
+
+![Severity detection and structured summary](screenshots/severity-summary.png)
+*Severity assessment and human-readable summary*
+
+## Installation
 ```bash
 git clone https://github.com/ian-de-marcellus/incident-timeline-mcp
 cd incident-timeline-mcp
@@ -187,4 +230,4 @@ MIT
 
 ## Author
 
-Built by Ian de Marcellus with Claude Sonnet 4.5 and Claude Opus 4.6.
+Built by Ian de Marcellus and Claude Sonnet 4.5 as a portfolio project demonstrating MCP server development, pattern recognition, and systematic testing approaches.
