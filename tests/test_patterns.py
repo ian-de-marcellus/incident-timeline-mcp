@@ -170,12 +170,17 @@ class TestActorPatterns:
         "@",
         "sentence with @ symbol alone",
     ])
-    def test_mentions_no_false_positives(self, text):
-        """Should handle @ in other contexts"""
+    def test_mentions_pattern_compiles_and_runs(self, text):
+        """Pattern runs without error on edge-case inputs.
+
+        The mention pattern (@username) may partially match emails
+        or other @-containing strings — that's acceptable because
+        the extractor layer handles disambiguation.
+        """
+        import re
         from patterns import ACTOR_PATTERNS
-        ACTOR_PATTERNS['mention']
-        # Email might partially match, but won't match full email
-        # This is acceptable behavior
+        # Verify the pattern doesn't crash on edge cases
+        re.search(ACTOR_PATTERNS['mention'], text)
 
     # Test Name: pattern
     @pytest.mark.parametrize("text,expected_name", [

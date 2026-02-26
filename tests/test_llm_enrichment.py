@@ -14,7 +14,7 @@ from llm.enrichment import (
     enrich_actions,
     enrich_entities,
     enrich_timeline,
-    _call_haiku,
+    _call_llm,
 )
 
 
@@ -99,10 +99,10 @@ class TestSettings:
             assert s.llm_enrichment == 'none'
 
 
-# ── TestCallHaiku ────────────────────────────────────────────────────
+# ── TestCallLlm ─────────────────────────────────────────────────────
 
-class TestCallHaiku:
-    """Test _call_haiku() API wrapper."""
+class TestCallLlm:
+    """Test _call_llm() API wrapper."""
 
     def test_success(self):
         """Should return tool input on successful API call."""
@@ -113,7 +113,7 @@ class TestCallHaiku:
         mock_client.messages.create.return_value = response
 
         from llm.prompts import IR_PHASE_TOOL
-        result = _call_haiku(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
+        result = _call_llm(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
         assert result == tool_input
 
     def test_api_exception(self):
@@ -122,7 +122,7 @@ class TestCallHaiku:
         mock_client.messages.create.side_effect = Exception("API error")
 
         from llm.prompts import IR_PHASE_TOOL
-        result = _call_haiku(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
+        result = _call_llm(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
         assert result is None
 
     def test_no_tool_use_block(self):
@@ -133,7 +133,7 @@ class TestCallHaiku:
         mock_client.messages.create.return_value = response
 
         from llm.prompts import IR_PHASE_TOOL
-        result = _call_haiku(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
+        result = _call_llm(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
         assert result is None
 
     def test_wrong_tool_name(self):
@@ -144,7 +144,7 @@ class TestCallHaiku:
         mock_client.messages.create.return_value = response
 
         from llm.prompts import IR_PHASE_TOOL
-        result = _call_haiku(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
+        result = _call_llm(mock_client, MODEL, "system", "user", IR_PHASE_TOOL, "classify_phases")
         assert result is None
 
 

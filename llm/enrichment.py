@@ -20,7 +20,7 @@ from .prompts import (
 logger = logging.getLogger(__name__)
 
 try:
-    import anthropic  # noqa: F401 — side-effect import for availability detection
+    import anthropic  # noqa: F401 — availability check, not used directly
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
@@ -35,7 +35,7 @@ _VALID_PHASES = {
 }
 
 
-def _call_haiku(
+def _call_llm(
     client,
     model: str,
     system: str,
@@ -44,7 +44,7 @@ def _call_haiku(
     tool_name: str,
 ) -> dict | None:
     """
-    Single API call to Claude Haiku with forced tool use.
+    Single LLM API call with forced tool use.
 
     Returns the parsed tool input dict, or None on any failure.
     """
@@ -119,7 +119,7 @@ def enrich_ir_phases(
                 lines.append(f"Event {ci} {tag} [{time}]: {text}")
 
         user_content = "\n".join(lines)
-        result = _call_haiku(
+        result = _call_llm(
             client, model,
             IR_PHASE_PROMPT, user_content,
             IR_PHASE_TOOL, "classify_phases",
@@ -163,7 +163,7 @@ def enrich_severity(
     # Truncate text for token efficiency
     truncated = text[:2000]
 
-    result = _call_haiku(
+    result = _call_llm(
         client, model,
         SEVERITY_PROMPT, truncated,
         SEVERITY_TOOL, "assess_severity",
@@ -223,7 +223,7 @@ def enrich_actions(
             index_map[line_num] = text
 
         user_content = "\n".join(lines)
-        result = _call_haiku(
+        result = _call_llm(
             client, model,
             ACTION_PROMPT, user_content,
             ACTION_TOOL, "identify_actions",
@@ -285,7 +285,7 @@ def enrich_entities(
         f"Incident context:\n{context}"
     )
 
-    result = _call_haiku(
+    result = _call_llm(
         client, model,
         ENTITY_PROMPT, user_content,
         ENTITY_TOOL, "disambiguate_entities",

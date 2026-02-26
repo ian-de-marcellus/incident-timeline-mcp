@@ -3,7 +3,6 @@ Core extraction logic for incident timeline analysis.
 Uses patterns from patterns.py to extract structured information.
 """
 
-import json
 import logging
 import re
 from datetime import datetime
@@ -123,7 +122,7 @@ def extract_timeline(text: str) -> list[dict[str, str]]:
         # Create event entry
         event = {
             'time': timestamp,
-            'text': line.strip(),
+            'text': line,
         }
         if timestamp_parsed:
             event['timestamp'] = timestamp_parsed.isoformat()
@@ -439,7 +438,7 @@ def _build_severity_timeline(events: list[dict]) -> list[dict]:
 
 def _find_incident_boundaries(
     timeline: list[dict],
-) -> tuple:
+) -> tuple[datetime | None, datetime | None]:
     """
     Find incident start and end timestamps using keyword signals.
 
@@ -560,7 +559,7 @@ def _compute_time_to_resolve(
 def _compute_phase_metrics(
     parsed: list[dict], timeline: list[dict], metrics: dict[str, Any],
 ) -> None:
-    """Add TTD and TTC from IR phase classifications."""
+    """Add TTC from IR phase classifications."""
     phase_events = [e for e in timeline if e.get('ir_phase')]
     if not phase_events or not parsed:
         return
@@ -785,7 +784,7 @@ def _build_phase_summary(phases: dict[str, list[dict]]) -> str:
     """
     Build a human-readable phase progression string.
 
-    Example: "Detection (14:23) → Analysis (14:24-14:29) → Containment (14:30)"
+    Example: "Detection (14:23) -> Analysis (14:24-14:29) -> Containment (14:30)"
     """
     if not phases:
         return ''
@@ -962,47 +961,6 @@ def _build_summary_text(
             summary_parts.append(f"  {entity_type}: {count}")
 
     return "\n".join(summary_parts) if summary_parts else "No significant data extracted"
-
-
-def format_report(result: dict) -> str:
-    """Format a pipeline result dict as a human-readable report.
-
-    Works with output from generate_summary() or parse_slack_export().
-    """
-    sections = []
-
-    # Summary
-    if result.get('summary_text'):
-        sections.append(f"=== SUMMARY ===\n{result['summary_text']}")
-
-    # Timeline with phase tags
-    if result.get('timeline'):
-        lines = []
-        for event in result['timeline']:
-            phase = event.get('ir_phase', 'unknown')
-            time = event.get('time', '')
-            actor = event.get('actor', '')
-            text = event.get('text', '')
-            if actor and text.startswith(actor):
-                # Text already includes actor prefix from Slack parser
-                lines.append(f"  [{phase}] {time} {text}")
-            elif actor:
-                lines.append(f"  [{phase}] {time} {actor}: {text}")
-            else:
-                lines.append(f"  [{phase}] {time} {text}")
-        sections.append("=== TIMELINE ===\n" + "\n".join(lines))
-
-    # Metrics
-    if result.get('metrics'):
-        metrics_json = json.dumps(result['metrics'], indent=2)
-        sections.append(f"=== METRICS ===\n{metrics_json}")
-
-    # Slack metadata (only present for Slack exports)
-    if result.get('slack_metadata'):
-        meta_json = json.dumps(result['slack_metadata'], indent=2)
-        sections.append(f"=== SLACK METADATA ===\n{meta_json}")
-
-    return "\n\n".join(sections)
 
 
 def _get_llm_client():

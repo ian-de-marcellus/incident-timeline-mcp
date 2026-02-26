@@ -32,5 +32,8 @@ Thumbs.db
 htmlcov/
 tests/__pycache__/
 
+# Type checking
+.mypy_cache/
+
 # Logs (if we add logging)
 *.log

@@ -154,7 +154,6 @@ class IncidentReport:
 @dataclass
 class IncidentMetrics:
     duration: timedelta | None
-    time_to_detect: timedelta | None   # first event to detection
     time_to_contain: timedelta | None  # detection to containment action
     time_to_resolve: timedelta | None  # detection to resolution
     num_responders: int

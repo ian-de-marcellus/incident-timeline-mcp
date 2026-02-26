@@ -80,7 +80,7 @@ cd incident-timeline-mcp
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-pytest tests/ -q   # 558 tests, ~5s
+pytest tests/ -q   # 564 tests, ~4s
 ```
 
 ### Connect to Claude Desktop
@@ -97,6 +97,20 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
+
+### Try It
+
+Once connected, ask Claude:
+
+> Analyze the phishing incident resource.
+
+Claude will discover the `incident://examples/phishing-export` resource and call `analyze_resource` to run the full pipeline — parsing the Slack export, resolving user IDs, filtering noise, classifying IR phases, and returning a structured incident report. No copy-pasting required.
+
+All 7 sample resources work the same way. For example:
+
+> Analyze the multi-day company export.
+
+> What's the severity of the simple incident?
 
 ### Optional: Enable LLM Enrichment
 
@@ -152,7 +166,7 @@ incident-timeline-mcp/
 ├── llm/
 │   ├── enrichment.py       # Haiku integration — phase, severity, action, entity passes
 │   └── prompts.py          # Tool schemas and system prompts for each enrichment pass
-├── tests/                  # 558 tests — patterns, extractors, LLM (mocked), server, e2e
+├── tests/                  # 564 tests — patterns, extractors, LLM (mocked), server, e2e
 ├── examples/               # Sample incidents (plaintext + Slack exports)
 └── docs/
     └── architecture-v2.md  # Detailed architecture and design decisions
